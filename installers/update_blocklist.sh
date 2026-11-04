@@ -41,8 +41,18 @@ fi
 tmp=$(mktemp "${adblock_dir}.${file}.XXXXXX")
 status=0
 wget -q --no-use-server-timestamps -O "$tmp" -- "$update_url" &> /dev/null || status=$?
+if [ "$status" -eq 0 ] && [ ! -s "$tmp" ]; then
+    echo "Downloaded list is empty" >&2
+    status=1
+fi
 if [ "$status" -eq 0 ]; then
-    chmod 644 "$tmp"
+    # the list keeps its owner and mode
+    if [ -f "${adblock_dir}${file}" ]; then
+        chown --reference="${adblock_dir}${file}" "$tmp"
+        chmod --reference="${adblock_dir}${file}" "$tmp"
+    else
+        chmod 644 "$tmp"
+    fi
     mv -f "$tmp" "${adblock_dir}${file}"
 else
     rm -f "$tmp"

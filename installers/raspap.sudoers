@@ -89,3 +89,4 @@ www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-vnstat.sh sync
 www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-vnstat.sh add [a-zA-Z0-9]*
 www-data ALL=(ALL) NOPASSWD:/usr/sbin/visudo -cf *
 www-data ALL=(ALL) NOPASSWD:/etc/raspap/plugins/plugin_helper.sh
+www-data ALL=(ALL) NOPASSWD:/bin/systemctl stop raspap-network-activity@*.service
