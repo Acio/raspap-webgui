@@ -263,6 +263,7 @@ function _remove_sudoers() {
     sudo rm -f /usr/local/sbin/raspap-config-file.sh || _install_error "Unable to remove raspap-config-file.sh"
     echo "Removing ${raspap_sudoers}" 
     sudo rm "$raspap_sudoers" || _install_error "Unable to remove $raspap_sudoers"
+    sudo rm -f /usr/local/sbin/raspap-net.sh /usr/local/sbin/raspap-logs.sh || _install_error "Unable to remove raspap-net.sh and raspap-logs.sh"
     # the set time script that the sudoers file allowed
     sudo rm -f /usr/local/sbin/raspap-settime.sh || _install_error "Unable to remove raspap-settime.sh"
     sudo rm -f /usr/local/sbin/raspap-vpn-file.sh || _install_error "Unable to remove raspap-vpn-file.sh"
