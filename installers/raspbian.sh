@@ -45,7 +45,7 @@ OPTIONS:
 -w, --wireguard <flag>              Used with -y, --yes, sets WireGuard install option (0=no install)
 -e, --provider <value>              Used with -y, --yes, sets the VPN provider install option
 -g, --tcp-bbr <value>               Used with -y, --yes, sets the TCP BBR congestion control algorithm option
--r, --repo, --repository <name>     Overrides the default GitHub repo (RaspAP/raspap-webgui)
+-r, --repo, --repository <name>     Overrides the default GitHub repo (Acio/raspap-webgui)
 -b, --branch <name>                 Overrides the default git branch (latest release)
 -x, --use-ssh                       Use ssh instead of https for git
 -u, --upgrade                       Upgrades an existing installation to the latest release version
@@ -78,7 +78,9 @@ set -eo pipefail
 
 function _main() {
     # set defaults
-    repo="RaspAP/raspap-webgui" # override with -r, --repo option
+    # the hardened fork: an update installs the latest release of the fork,
+    # never a branch. Override with -r, --repo option
+    repo="Acio/raspap-webgui"
 
     _parse_params "$@"
     _setup_colors

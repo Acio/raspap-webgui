@@ -45,7 +45,7 @@ define('RASPI_ACCESS_CHECK_IP', '1.1.1.1');
 define('RASPI_ACCESS_CHECK_DNS', 'one.one.one.one');
 
 // Constant for the GitHub API latest release endpoint
-define('RASPI_API_ENDPOINT', 'https://api.github.com/repos/RaspAP/raspap-webgui/releases/latest');
+define('RASPI_API_ENDPOINT', 'https://api.github.com/repos/Acio/raspap-webgui/releases/latest');
 
 // Captive portal detection - returns 204 or 200 is successful
 define('RASPI_ACCESS_CHECK_URL', 'http://detectportal.firefox.com');

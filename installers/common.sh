@@ -976,6 +976,13 @@ function _download_latest_files() {
     if [ "$update" == 1 ]; then
         _install_log "Applying existing configuration to ${webroot_dir}/includes"
         sudo mv "$old_config_dir/config.php" $webroot_dir/includes  || _install_status 1 "Unable to move config.php to ${webroot_dir}/includes"
+        # the device keeps its config.php, but the update check must use the
+        # release endpoint of the new version
+        local endpoint
+        endpoint=$(grep -m1 "^define('RASPI_API_ENDPOINT'," "$webroot_dir/config/config.php" || true)
+        if [ -n "$endpoint" ]; then
+            sudo sed -i "s|^define('RASPI_API_ENDPOINT',.*|$endpoint|" "$webroot_dir/includes/config.php" || _install_status 1 "Unable to set the update endpoint in config.php"
+        fi
 
         if [ -f "$old_config_dir/raspap.auth" ]; then
             _install_log "Applying existing authentication file to ${raspap_dir}"
