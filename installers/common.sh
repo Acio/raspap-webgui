@@ -927,6 +927,27 @@ function _install_restapi() {
     _install_status 0
 }
 
+# Saves the web root to /var/backups/raspap-webroot-<date>.tar.gz before an
+# update removes it. Restore: tar -xzf <file> -C /
+function _backup_webroot() {
+    local backup_dir="/var/backups"
+    local backup="$backup_dir/raspap-webroot-$(date +%F-%H%M%S).tar.gz"
+    [ -d "$webroot_dir" ] || return 0
+    _install_log "Saving the current web root to $backup"
+    sudo mkdir -p "$backup_dir"
+    # _check_for_old_configs moved config.php out of the web root already
+    local extra=()
+    if [ -f "${old_config_dir:-}/config.php" ]; then
+        extra=(--transform="s|^config\.php\$|${webroot_dir#/}/includes/config.php|" -C "$old_config_dir" config.php)
+    fi
+    sudo tar -czf "$backup" -C / "${webroot_dir#/}" "${extra[@]}" || _install_status 1 "Unable to save the web root to $backup"
+    sudo chmod 600 "$backup"
+    local old
+    for old in $(ls -1t "$backup_dir"/raspap-webroot-*.tar.gz 2>/dev/null | tail -n +4); do
+        sudo rm -f "$old"
+    done
+}
+
 # Fetches latest files from github to webroot
 function _download_latest_files() {
     _install_log "Cloning latest files from GitHub"
@@ -947,6 +968,10 @@ function _download_latest_files() {
     if [ -d "$webroot_dir" ] && [ "$update" == 0 ]; then
         sudo mv $webroot_dir "$webroot_dir.`date +%F-%R`" || _install_status 1 "Unable to move existing webroot directory"
     elif [ "$upgrade" == 1 ] || [ "$update" == 1 ]; then
+        # A copy of the current web root, to restore it by hand when the update
+        # fails. Keeps the 3 newest copies.
+        _backup_webroot
+
         # Preserve user plugins temporarily
         if [ -d "$webroot_dir/plugins" ]; then
             sudo cp -r "$webroot_dir/plugins" "/tmp/raspap-user-plugins"
