@@ -32,7 +32,9 @@ class PluginInstaller
         $this->destSudoers = '/etc/sudoers.d/';
         $this->refModules = '/refs/heads/master/.gitmodules';
         $this->rootPath = dirname(__DIR__, 3);
-        $this->pluginsManifest = '/plugins/manifest.json';
+        // the plugin list of the hardened fork. It is part of each release,
+        // so an update does not change it from outside
+        $this->pluginsManifest = '/config/plugins.json';
         $this->helperScriptPath = RASPI_CONFIG.'/plugins/plugin_helper.sh';
     }
 
@@ -136,16 +138,49 @@ class PluginInstaller
     }
 
     /**
+     * Installs a plugin of the plugin list. The browser sends only the name.
+     * The URI, the version and the install path come from the plugin list,
+     * so a request can not install a plugin from another source.
+     *
+     * @param string $name the name of the plugin in the plugin list
+     * @return boolean
+     * @throws \Exception
+     */
+    public function installPluginByName(string $name): bool
+    {
+        $entry = null;
+        foreach ($this->getUserPlugins() as $plugin) {
+            if (($plugin['manifest']['name'] ?? null) === $name) {
+                $entry = $plugin['manifest'];
+                break;
+            }
+        }
+        if ($entry === null) {
+            throw new \Exception('The plugin is not in the plugin list.');
+        }
+        $uri = (string)($entry['plugin_uri'] ?? '');
+        $version = (string)($entry['version'] ?? '');
+        $installPath = (string)($entry['install_path'] ?? '');
+        if (!preg_match('#^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+$#', $uri)
+            || !preg_match('/^[A-Za-z0-9._-]{1,40}$/', $version)
+            || !in_array($installPath, ['plugins', 'plugins-available'], true)) {
+            throw new \Exception('The plugin list has an invalid entry for this plugin.');
+        }
+        return $this->installPlugin($uri, $version, $installPath, preg_replace('/\s+/', '', $name));
+    }
+
+    /**
      * Installs a plugin by either extracting an archive or creating a symlink,
      * then performs required actions as defined in the plugin manifest
      *
      * @param string $pluginUri
      * @param string $pluginVersion
      * @param string $installPath
+     * @param string $expectedName the name of the plugin list, without spaces
      * @return boolean
      * @throws \Exception
      */
-    public function installPlugin(string $pluginUri, string $pluginVersion, string $installPath): bool
+    private function installPlugin(string $pluginUri, string $pluginVersion, string $installPath, string $expectedName): bool
     {
         $tempFile = null;
         $extractDir = null;
@@ -155,6 +190,9 @@ class PluginInstaller
             if ($installPath === 'plugins-available') {
                 // extract plugin name from URI
                 $pluginName = basename($pluginUri);
+                if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $pluginName)) {
+                    throw new \Exception('Invalid plugin name.');
+                }
                 $sourcePath = $this->rootPath . '/plugins-available/' . $pluginName;
                 $targetPath = $this->rootPath . '/plugins/' . $pluginName;
 
@@ -179,7 +217,14 @@ class PluginInstaller
             }
 
             $manifest = $this->parseManifest($pluginDir);
-            $this->pluginName = preg_replace('/\s+/', '', $manifest['name']);
+            $this->pluginName = preg_replace('/\s+/', '', (string)($manifest['name'] ?? ''));
+            // the name sets the file names of the plugin, for example
+            // /etc/sudoers.d/090_<name>. A downloaded plugin must have the name
+            // of the plugin list. A bundled plugin is part of the release.
+            if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $this->pluginName)
+                || ($installPath === 'plugins' && $this->pluginName !== $expectedName)) {
+                throw new \Exception('The plugin manifest has an unexpected name.');
+            }
             $rollbackStack = []; // Store actions to rollback on failure
 
             try {

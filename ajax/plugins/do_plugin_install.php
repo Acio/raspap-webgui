@@ -6,13 +6,13 @@ require_once '../../includes/config.php';
 require_once '../../includes/authenticate.php';
 
 $pluginInstaller = \RaspAP\Plugins\PluginInstaller::getInstance();
-$plugin_uri = $_POST['plugin_uri'] ?? null;
-$plugin_version = $_POST['plugin_version'] ?? null;
-$install_path = $_POST['install_path'] ?? null;
+// only the name: the source, the version and the install path come from the
+// plugin list of this release
+$plugin_name = $_POST['plugin_name'] ?? null;
 
-if (isset($plugin_uri, $plugin_version, $install_path)) {
+if (is_string($plugin_name) && $plugin_name !== '') {
     try {
-        $return = $pluginInstaller->installPlugin($plugin_uri, $plugin_version, $install_path);
+        $return = $pluginInstaller->installPluginByName($plugin_name);
         echo json_encode($return);
     } catch (Exception $e) {
         http_response_code(422); // unprocessable content
@@ -20,7 +20,6 @@ if (isset($plugin_uri, $plugin_version, $install_path)) {
     }
 } else {
     http_response_code(400); // Bad Request
-    echo json_encode(['error' => 'Plugin URI, version, and install path are required']);
+    echo json_encode(['error' => 'Plugin name is required']);
     exit;
 }
-

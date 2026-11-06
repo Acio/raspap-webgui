@@ -1,0 +1,288 @@
+{
+  "plugins": [
+    {
+      "id": "1",
+      "name": "Socks Proxy",
+      "version": "v1.0.2",
+      "description": "A Dante SOCKS v5 proxy server add-on for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/billz/SocksProxy",
+      "plugin_docs": "https://github.com/billz/SocksProxy",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\SocksProxy",
+      "configuration": [
+        {
+          "source": "config/danted.conf",
+          "destination": "/etc/danted.conf"
+        }
+      ],
+      "default_locale": "en_US",
+      "dependencies": {
+        "dante-server": "1.4.2"
+      },
+      "icon": "fas fa-socks",
+      "install_path": "plugins",
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl * danted.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cat /etc/danted.conf",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/danted.conf /etc/danted.conf"
+      ],
+      "user_nonprivileged": {
+        "name": "danteuser",
+        "pass": "sockspass"
+      }
+    },
+    {
+      "id": "2",
+      "name": "DynDNS",
+      "version": "v1.0.2",
+      "description": "A Dynamic DNS service add-on for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/billz/DynDNS",
+      "plugin_docs": "https://docs.raspap.com/dynamicdns/",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\DynDNS",
+      "configuration": [
+        {
+          "source": "config/ddns-services.json",
+          "destination": "config/ddns-services.json"
+        }
+      ],
+      "default_locale": "en_US",
+      "dependencies": {
+        "ddclient": "3.10.0-2"
+      },
+      "icon": "fas fa-globe",
+      "install_path": "plugins",
+      "javascript": {
+        "source": "templates/app/js/DynDNS.js"
+      },
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/ddclientddata /etc/ddclient.conf",
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl start ddclient.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl stop ddclient.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cat /etc/ddclient.conf",
+        "www-data ALL=(ALL) NOPASSWD:/usr/bin/ddclient -daemon=0 -debug -verbose -noquiet"
+      ]
+    },
+    {
+      "name": "Firewall",
+      "version": "v1.1.2-hardened.1",
+      "description": "A Firewall add-on with iptables rules tailored for RaspAP",
+      "author": "zbchristian",
+      "author_uri": "https://github.com/zbchristian",
+      "plugin_uri": "https://github.com/Acio/raspap-webgui/tree/pi/hardened/plugins-available/Firewall",
+      "plugin_docs": "https://docs.raspap.com/firewall/",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\Firewall",
+      "default_locale": "en_US",
+      "icon": "fas fa-fire-alt",
+      "install_path": "plugins-available",
+      "javascript": {
+        "source": "templates/app/js/Firewall.js"
+      },
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-firewall.sh apply",
+        "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-firewall.sh vpn-hosts"
+      ]
+    },
+    {
+      "id": "4",
+      "name": "NTP Server",
+      "version": "v1.1.2",
+      "description": "A Network Time Protocol (NTP) server for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/billz/NTPServer",
+      "plugin_docs": "https://docs.raspap.com/ntp/",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\NTPServer",
+      "default_locale": "en_US",
+      "dependencies": {
+        "ntpsec": "1.2.2"
+      },
+      "icon": "far fa-clock",
+      "install_path": "plugins",
+      "javascript": {
+        "source": "templates/app/js/NTPServer.js"
+      },
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/usr/bin/ntpq *",
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl * ntpd.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/ntpdata /etc/ntpsec/ntp.conf"
+      ]
+    },
+    {
+      "id": "5",
+      "name": "Tailscale VPN",
+      "version": "v1.1.1",
+      "description": "A Tailscale VPN extension for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/RaspAP/Tailscale",
+      "plugin_docs": "https://docs.raspap.com/tailscale",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\Tailscale",
+      "configuration": [
+        {
+          "source": "config/tailscale-ethtool@.service",
+          "destination": "/etc/systemd/system/tailscale-ethtool@.service"
+        },
+        {
+          "source": "config/ts-optimize.sh",
+          "destination": "/etc/raspap/networking/ts-optimize.sh"
+        }
+      ],
+      "permissions": [
+        {
+          "file": "/etc/systemd/system/tailscale-ethtool@.service",
+          "owner": "root",
+          "group": "root",
+          "mode": "0644"
+        },
+        {
+          "file": "/etc/raspap/networking/ts-optimize.sh",
+          "owner": "www-data",
+          "group": "www-data",
+          "mode": "0755"
+        }
+      ],
+      "default_locale": "en_US",
+      "dependencies": {
+        "tailscale": "1.82.5"
+      },
+      "icon": "ra-tailscale",
+      "install_path": "plugins-available",
+      "keys": [
+        {
+          "key_url": "https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg",
+          "keyring": "/usr/share/keyrings/tailscale-archive-keyring.gpg",
+          "repo": "https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list",
+          "sources": "/etc/apt/sources.list.d/tailscale.list"
+        }
+      ],
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/usr/bin/tailscale *",
+        "www-data ALL=(ALL) NOPASSWD:/etc/raspap/networking/ts-optimize.sh"
+      ]
+    },
+    {
+      "id": "6",
+      "name": "Tor Proxy",
+      "version": "v1.1.0",
+      "description": "A Tor proxy server add-on for RaspAP",
+      "author": "Bill Zimmerman",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/billz/TorProxy",
+      "plugin_docs": "https://github.com/billz/TorProxy",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\TorProxy",
+      "configuration": [
+        {
+          "source": "config/torrc",
+          "destination": "/etc/tor/torrc"
+        }
+      ],
+      "default_locale": "en_US",
+      "dependencies": {
+        "tor": "0.4.7.16",
+        "nyx": "2.1.0"
+      },
+      "icon": "ra-torproxy",
+      "install_path": "plugins",
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl * tor@default.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/torrc /etc/tor/torrc"
+      ]
+    },
+    {
+      "id": "7",
+      "name": "Wireshark",
+      "version": "v1.0.0",
+      "description": "A TShark (Wireshark) packet capture plugin for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/RaspAP/Wireshark",
+      "plugin_docs": "http://docs.raspap.com/Wireshark",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\Wireshark",
+      "default_locale": "en_US",
+      "dependencies": {
+        "tshark": "4.4.7"
+      },
+      "icon": "ra-wireshark",
+      "install_path": "plugins-available",
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/usr/bin/tshark *",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cat /tmp/*.pcap",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cat /tmp/*.pcapng",
+        "www-data ALL=(ALL) NOPASSWD:/bin/rm /tmp/*.pcap",
+        "www-data ALL=(ALL) NOPASSWD:/bin/rm /tmp/*.pcapng"
+      ]
+    },
+    {
+      "id": "8",
+      "name": "Captive portal",
+      "version": "v1.0.0",
+      "description": "A Captive Portal add-on for RaspAP",
+      "author": "Bill Z",
+      "author_uri": "https://github.com/billz",
+      "plugin_uri": "https://github.com/RaspAP/Captive",
+      "plugin_docs": "https://docs.raspap.com/captive/",
+      "license": "GPL-3.0",
+      "namespace": "RaspAP\\Plugins\\Captive",
+      "dpkgs": [
+        "nodogsplash_5.0.2-1_arm64.deb",
+        "nodogsplash_5.0.2-1_armhf.deb"
+      ],
+      "configuration": [
+        {
+          "source": "config/nodogsplash.conf",
+          "destination": "/etc/nodogsplash/"
+        },
+        {
+          "source": "config/splash.html",
+          "destination": "/etc/nodogsplash/htdocs/"
+        },
+        {
+          "source": "config/status.html",
+          "destination": "/etc/nodogsplash/htdocs/"
+        },
+        {
+          "source": "config/status.html",
+          "destination": "/etc/nodogsplash/htdocs/"
+        },
+        {
+          "source": "config/splash.css",
+          "destination": "/etc/nodogsplash/htdocs/"
+        },
+        {
+          "source": "config/RaspAP-logo.svg",
+          "destination": "/etc/nodogsplash/htdocs/images/"
+        }
+      ],
+      "default_locale": "en_US",
+      "dependencies": {
+        "libmicrohttpd-dev": "1.0.1-4",
+        "libjson-c-dev": "0.18+ds-1"
+      },
+      "icon": "fas fa-right-to-bracket",
+      "install_path": "plugins-available",
+      "manifest_version": "1.0",
+      "sudoers": [
+        "www-data ALL=(ALL) NOPASSWD:/bin/systemctl * nodogsplash.service",
+        "www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/nodogsplash.conf /etc/nodogsplash/nodogsplash.conf",
+        "www-data ALL=(ALL) NOPASSWD:/usr/bin/ndsctl *"
+      ]
+    }
+  ]
+}

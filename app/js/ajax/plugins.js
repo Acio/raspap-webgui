@@ -17,9 +17,7 @@ export function initPlugins_ajax() {
     $('#js-install-plugin-confirm').on('click', function (e) {
         var button = $('#install-user-plugin').data('button');
         var manifestData = button.data('plugin-manifest');
-        var installPath = manifestData.install_path;
-        var pluginUri = manifestData.plugin_uri;
-        var pluginVersion = manifestData.version;
+        var pluginName = manifestData.name;
         var pluginConfirm = $('#js-install-plugin-confirm').text();
         var progressText = $('#js-install-plugin-confirm').attr('data-message');
         var successHtml = $('#plugin-install-message').attr('data-message');
@@ -32,9 +30,7 @@ export function initPlugins_ajax() {
             $.post(
                 'ajax/plugins/do_plugin_install.php',
                 {
-                    'plugin_uri': pluginUri,
-                    'plugin_version': pluginVersion,
-                    'install_path': installPath,
+                    'plugin_name': pluginName,
                     'csrf_token': csrfToken
                 },
                 function (data) {
