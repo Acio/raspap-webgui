@@ -63,4 +63,26 @@ while IFS= read -r cmd; do
 done < /tmp/cmds.txt
 c "$(wc -l < /tmp/cmds.txt) commands allowed" '[ -z "$refused" ] || { echo "refused:$refused"; false; }'
 
+echo "== dist/ has the library versions of package.json"
+# package|file|text before the version in the first lines of the file
+libs=(
+    "jquery|dist/jquery/jquery.min.js|jQuery v"
+    "datatables.net|dist/datatables/jquery.dataTables.min.js|DataTables "
+    "chart.js|dist/chart.js/Chart.min.js|Chart.js v"
+    "bootstrap|dist/bootstrap/js/bootstrap.bundle.min.js|Bootstrap v"
+    "@fortawesome/fontawesome-free|dist/font-awesome/css/all.min.css|Font Awesome Free "
+    "huebee|dist/huebee/huebee.pkgd.min.js|Huebee PACKAGED v"
+    "jquery-mask-plugin|dist/jquery-mask/jquery.mask.min.js|jQuery Mask Plugin v"
+    "jquery.easing|dist/jquery-easing/jquery.easing.js|jQuery Easing v"
+)
+pkgver() { php -r '$d = json_decode(file_get_contents("package.json"), true); echo $d["dependencies"][$argv[1]] ?? "";' -- "$1"; }
+for l in "${libs[@]}"; do
+    IFS='|' read -r pkg file prefix <<< "$l"
+    want=$(pkgver "$pkg")
+    have=$(head -c 600 "$file" | tr '\n' ' ' | grep -oF "$prefix$want" | head -1)
+    c "$pkg $want in $file" '[ -n "$want" ] && [ "$have" = "$prefix$want" ]'
+done
+c "datatables.net-bs4 has the version of datatables.net" '[ "$(pkgver datatables.net-bs4)" = "$(pkgver datatables.net)" ]'
+c "no npm build files (dist/ is updated by hand)" '[ ! -e yarn.lock ] && [ ! -e gulpfile.js ] && [ ! -e package-lock.json ]'
+
 finish
