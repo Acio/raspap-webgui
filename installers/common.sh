@@ -994,6 +994,26 @@ function _backup_webroot() {
     done
 }
 
+# Installs the JavaScript files of the installed plugins again. An update
+# removes app/js/plugins with the rest of the web root.
+function _restore_plugin_javascript() {
+    local dir js src
+    for dir in "$webroot_dir"/plugins/*/; do
+        [ -f "$dir/manifest.json" ] || continue
+        while IFS= read -r js; do
+            [ -n "$js" ] || continue
+            src=$(realpath -e -- "$dir/$js" 2>/dev/null) || continue
+            # only a file of the plugin itself
+            case "$src" in
+                "$(realpath -e -- "$dir")"/*) ;;
+                *) continue ;;
+            esac
+            sudo install -D -o $raspap_user -g $raspap_user -m 644 "$src" "$webroot_dir/app/js/plugins/$(basename "$src")" ||
+                _install_status 1 "Unable to install $(basename "$src")"
+        done < <(php -r '$m = json_decode((string)file_get_contents($argv[1]), true); foreach ((array)($m["javascript"] ?? []) as $j) { if (is_string($j)) { echo $j, PHP_EOL; } }' -- "$dir/manifest.json")
+    done
+}
+
 # Fetches latest files from github to webroot
 function _download_latest_files() {
     _install_log "Cloning latest files from GitHub"
@@ -1019,9 +1039,12 @@ function _download_latest_files() {
         # fails. Keeps the 3 newest copies.
         _backup_webroot
 
-        # Preserve user plugins temporarily
+        # Keep the installed plugins in a private temporary directory: the
+        # plugin directories and the symlinks of the bundled plugins
+        plugins_keep=""
         if [ -d "$webroot_dir/plugins" ]; then
-            sudo cp -r "$webroot_dir/plugins" "/tmp/raspap-user-plugins"
+            plugins_keep=$(sudo mktemp -d /tmp/raspap-user-plugins.XXXXXX) || _install_status 1 "Unable to create a temporary directory"
+            sudo cp -a "$webroot_dir/plugins/." "$plugins_keep/" || _install_status 1 "Unable to keep the installed plugins"
         fi
 
         sudo find "$webroot_dir" -mindepth 1 \
@@ -1037,12 +1060,15 @@ function _download_latest_files() {
     _install_log "Installing application to $webroot_dir"
     sudo rsync -av $exclude "$source_dir"/ "$webroot_dir"/ >/dev/null 2>&1 || _install_status 1 "Unable to install files to $webroot_dir"
 
-    # Restore user plugins after rsync
+    # Restore user plugins after rsync. Symlinks too: a bundled plugin is a
+    # symlink to plugins-available. Not the files of the plugins submodule.
     if [ "$upgrade" == 1 ] || [ "$update" == 1 ]; then
-        if [ -d "/tmp/raspap-user-plugins" ]; then
-            sudo find /tmp/raspap-user-plugins -mindepth 1 -maxdepth 1 -type d -exec cp -r {} "$webroot_dir/plugins/" \; 2>/dev/null
-            sudo rm -rf "/tmp/raspap-user-plugins"
+        if [ -n "${plugins_keep:-}" ] && [ -d "$plugins_keep" ]; then
+            sudo find "$plugins_keep" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) ! -name .github \
+                -exec cp -a {} "$webroot_dir/plugins/" \; || _install_status 1 "Unable to restore the installed plugins"
+            sudo rm -rf "$plugins_keep"
         fi
+        _restore_plugin_javascript
     fi
 
     if [ "$update" == 1 ]; then
