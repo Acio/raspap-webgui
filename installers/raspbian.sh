@@ -320,12 +320,13 @@ function _update_system_packages() {
 
 # Fetch required installer functions
 function _load_installer() {
-    # fetch latest release tag
-    _get_release
-
-    # assign default branch if not defined with -b, --branch option
-    if [ -z ${branch} ]; then
+    # without -b, --branch: the latest release. With a branch, no release is
+    # needed, so a fork without a release can also be installed.
+    if [ -z "${branch}" ]; then
+        _get_release
         branch=$RASPAP_LATEST
+    else
+        RASPAP_RELEASE="${branch}"
     fi
     UPDATE_URL="https://raw.githubusercontent.com/$repo/$branch/"
 
