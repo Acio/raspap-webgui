@@ -58,6 +58,29 @@ These images are automatically generated with each release of RaspAP. You may ch
 
 After downloading your desired image from the [latest release page](https://github.com/RaspAP/raspap-webgui/releases/latest), use a utility such as the Raspberry Pi Imager or [balenaEtcher](https://www.balena.io/etcher) to flash the OS image onto a microSD card. Insert the card into your device and boot it up. The latest RaspAP release version with the most popular optional components will be active and ready for you to configure.
 
+### Install this hardened fork
+The pre-built images above and the Quick installer below install the official RaspAP, not this fork. This fork has no pre-built images.
+
+To install this fork on a new device:
+
+1. Install Raspberry Pi OS Lite (trixie). Do the first steps of the Quick installer below: update RPi OS, reboot, and set the WiFi country.
+2. Download the installer of this fork. Examine it before you run it.
+   ```sh
+   curl -sL https://raw.githubusercontent.com/Acio/raspap-webgui/pi/hardened/installers/raspbian.sh -o raspbian.sh
+   less raspbian.sh
+   ```
+3. Run the installer:
+   ```sh
+   bash raspbian.sh
+   ```
+
+The installer installs the latest release of this fork. After that, the update in the web interface installs only the releases of this fork.
+
+To change an existing RaspAP install to this fork, make a backup of the device first. Then download the installer as in step 2, and run it with `--update`:
+```sh
+bash raspbian.sh --update --yes
+```
+
 ### Quick installer
 Alternatively, start with a clean install of a [latest release of Raspberry Pi OS](https://www.raspberrypi.org/software/operating-systems/). Both the 32- and 64-bit release versions are supported, as well as the latest 64-bit Desktop distribution.
 
