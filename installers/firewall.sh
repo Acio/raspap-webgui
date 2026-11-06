@@ -53,7 +53,10 @@ valid_ipv4() {
 }
 
 # Reads firewall.conf. Only known keys, and only values that pass the checks.
-declare -A cfg=([firewall-enable]=0 [ssh-enable]=0 [http-enable]=0 [ntp-enable]=0 [ap-device]="" [excl-devices]="" [excluded-ips]="" [restricted-ips]="")
+# As in the rule set of the plugin, an exception (ssh, http, ntp) without a key
+# in firewall.conf is on. The GUI writes ssh-enable and http-enable, but not
+# ntp-enable.
+declare -A cfg=([firewall-enable]=0 [ssh-enable]=1 [http-enable]=1 [ntp-enable]=1 [ap-device]="" [excl-devices]="" [excluded-ips]="" [restricted-ips]="")
 read_conf() {
     local key value
     [ -f "$conf" ] && [ ! -L "$conf" ] || return 0
