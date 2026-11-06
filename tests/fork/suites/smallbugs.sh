@@ -1,0 +1,103 @@
+#!/bin/bash
+#
+# The small bugs of the reviews of RaspAP #2234, #2238 to #2241 (RaspAP #2243),
+# as the fork fixes them: configport.sh, update_blocklist.sh, servicestart.sh,
+# the sudo rules, OpenVPN names, the manual WireGuard config and clearlog.php.
+
+. /s/tests/fork/lib.sh
+
+setup_sudoers
+stub_programs /bin/systemctl /sbin/reboot /sbin/ifup /usr/sbin/netplan /usr/local/sbin/onoff_huawei_hilink.sh \
+    /usr/local/sbin/raspap-config-file.sh /usr/local/sbin/raspap-wifi.sh
+al() { sudo -u www-data sudo -n -l "$@" > /dev/null 2>&1; }
+
+echo "== sudo rules"
+c "visudo accepts raspap.sudoers" 'visudo -cqf "$S/installers/raspap.sudoers"'
+c "reboot without arguments allowed, with an argument refused" 'al /sbin/reboot && ! al /sbin/reboot --force'
+c "rules without a caller removed: ifup, netplan, hilink, start of the activity monitor" '! al /sbin/ifup wlan0 && ! al /usr/sbin/netplan apply && ! al /usr/local/sbin/onoff_huawei_hilink.sh -c 1 && ! al /bin/systemctl start raspap-network-activity@wlan0.service'
+c "stop of the activity monitor (hostapd.php) allowed" 'al /bin/systemctl stop "raspap-network-activity@*.service"'
+c "dual mode: the hostapd file of an interface through the helper" 'al /usr/local/sbin/raspap-config-file.sh install hostapd wlan1'
+c "wpa_cli reassociate and disconnect without an id through the helper" 'al /usr/local/sbin/raspap-wifi.sh wpa wlan0 reassociate && al /usr/local/sbin/raspap-wifi.sh wpa wlan0 disconnect'
+
+echo "== configport.sh"
+mkdir -p /etc/raspap/lighttpd /etc/lighttpd
+install -m 750 "$S/installers/configport.sh" /etc/raspap/lighttpd/configport.sh
+printf 'server.port                 = 80\n' > /etc/lighttpd/lighttpd.conf
+pat=$'$serverBind = "\'\'";'
+c "system.php passes an empty bind address as an empty argument" 'grep -qF "$pat" "$S/includes/system.php"'
+(cd /tmp && bash -c "/etc/raspap/lighttpd/configport.sh '8081' '' /etc/lighttpd/lighttpd.conf raspap.local" > /dev/null 2>&1)
+c "port and an empty bind address: port changes, no server.bind" 'grep -q "^server.port *= 8081" /etc/lighttpd/lighttpd.conf && ! grep -q server.bind /etc/lighttpd/lighttpd.conf'
+
+echo "== update_blocklist.sh (wget replaced by a stub)"
+mkdir -p /etc/raspap/adblock /opt/stub
+cat > /opt/stub/wget <<'EOF'
+#!/bin/bash
+out="" url=""
+while [ $# -gt 0 ]; do case "$1" in -O) out="$2"; shift 2 ;; --) url="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done
+case "$url" in
+    *missing*) exit 8 ;;
+    *empty*) : > "$out" ;;
+    *) echo "0.0.0.0 new.example" > "$out" ;;
+esac
+EOF
+chmod 755 /opt/stub/wget
+L=/etc/raspap/adblock/hostnames.txt
+reset() { echo "0.0.0.0 old.example" > $L; chown root:www-data $L; chmod 664 $L; }
+ub() { PATH="/opt/stub:$PATH" bash "$S/installers/update_blocklist.sh" "$1" hostnames.txt /etc/raspap/adblock/ 2> /dev/null; }
+reset; out=$(ub https://lists.example.org/good.txt); rc=$?
+c "good download: new list, output 0, owner and mode kept" '[ $rc = 0 ] && [ "$out" = 0 ] && grep -q new.example $L && [ "$(stat -c %U:%G:%a $L)" = root:www-data:664 ]'
+reset; out=$(ub https://lists.example.org/missing.txt)
+c "failed download: old list kept, no temporary file" '[ "$out" != 0 ] && grep -q old.example $L && [ "$(ls -A /etc/raspap/adblock | wc -l)" = 1 ]'
+reset; out=$(ub https://lists.example.org/empty.txt)
+c "empty download: old list kept" '[ "$out" != 0 ] && grep -q old.example $L && [ "$(ls -A /etc/raspap/adblock | wc -l)" = 1 ]'
+reset; ub http://lists.example.org/good.txt > /dev/null; rc=$?
+c "a URL that is not https is refused" '[ $rc = 2 ] && grep -q old.example $L'
+
+echo "== servicestart.sh"
+timeout 5 bash "$S/installers/servicestart.sh" --unknown > /dev/null 2>&1; rc=$?
+c "unknown option: exit 2 at once (rc $rc)" '[ $rc = 2 ]'
+
+echo "== OpenVPN names"
+cat > /tmp/ovpn.php <<'EOF'
+<?php
+$src = file_get_contents('/s/includes/openvpn.php');
+preg_match("/\\\$name = preg_replace\\('([^']+)', '_'/", $src, $m1);
+preg_match("/preg_match\\('([^']+)', \\\$ovpncfg_id\\)/", file_get_contents('/s/ajax/openvpn/activate_ovpncfg.php'), $m2);
+preg_match("/preg_match\\('([^']+)', \\\$ovpncfg_id\\)/", file_get_contents('/s/ajax/openvpn/del_ovpncfg.php'), $m3);
+$ok = isset($m1[1], $m2[1], $m3[1]) && $m2[1] === $m3[1];
+foreach (['My VPN (NL).ovpn', 'büro+1@x.ovpn', ' .-lead.ovpn', 'a;b$(c).ovpn', str_repeat('x', 150).'.ovpn'] as $f) {
+    $name = substr(ltrim(preg_replace($m1[1], '_', pathinfo($f, PATHINFO_FILENAME)), ' .-'), 0, 100);
+    $ok = $ok && preg_match($m2[1], $name) === 1 && strpos($name, '/') === false;
+}
+foreach (['../x', 'a/b', '.hidden', "a\nb", ''] as $bad) {
+    $ok = $ok && preg_match($m2[1], $bad) !== 1;
+}
+echo $ok ? "PASS\n" : "FAIL\n";
+EOF
+c "upload names are accepted by both endpoints; ../, / and newline refused" '[ "$(php /tmp/ovpn.php)" = PASS ]'
+
+echo "== manual WireGuard config"
+cat > /tmp/wg.php <<'EOF'
+<?php
+function getDefaultNetValue($svc, $iface, $key) { $j = json_decode(file_get_contents('/s/config/defaults.json'), true); return $j[$svc][$iface][$key][0]; }
+preg_match_all("/^\s*(\\\$config\[\] = 'Post(Up|Down) = '.*);\s*$/m", file_get_contents('/s/includes/wireguard.php'), $m);
+$config = [];
+foreach ($m[1] as $line) { eval($line.';'); }
+echo implode("\n", $config), "\n";
+EOF
+out=$(php /tmp/wg.php)
+c "PostUp gives ap, no %a" 'echo "$out" | grep -qx "PostUp = /etc/raspap/networking/wg-forward.sh up %i ap" && ! echo "$out" | grep -q "%a"'
+
+echo "== clearlog.php as www-data, through the log helper"
+install -o root -g root -m 755 "$S/installers/logs.sh" /usr/local/sbin/raspap-logs.sh
+mkdir -p /tmp/cl
+sed '/^require_once/d' "$S/ajax/logging/clearlog.php" > /tmp/cl/clearlog.php
+cl() { sudo -u www-data php -r '$_POST["logfile"] = $argv[1]; include $argv[2];' -- "$1" /tmp/cl/clearlog.php; }
+mkdir -p /var/log
+for f in /tmp/hostapd.log /tmp/openvpn.log /var/log/dnsmasq.log /tmp/other.log; do echo data > $f; chmod 644 $f; done
+cl /tmp/hostapd.log > /dev/null; cl /tmp/openvpn.log > /dev/null; cl /var/log/dnsmasq.log > /dev/null
+c "the 3 logs are cleared" '[ ! -s /tmp/hostapd.log ] && [ ! -s /tmp/openvpn.log ] && [ ! -s /var/log/dnsmasq.log ]'
+r4=$(cl /tmp/other.log); r5=$(cl /tmp/../tmp/other.log)
+c "other log and a path with .. refused, file unchanged" '[ "$r4" = 1 ] && [ "$r5" = 1 ] && [ -s /tmp/other.log ]'
+
+finish
