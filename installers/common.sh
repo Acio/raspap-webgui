@@ -782,7 +782,8 @@ function _update_wireguard() {
         sudo php -r '
             $file = $argv[1];
             $legacy = "iptables -%s OUTPUT ! -o %%i -m mark ! --mark \$(wg show %%i fwmark) -m addrtype ! --dst-type LOCAL ! -d %%s -j REJECT";
-            $json = file_get_contents($file);
+            $old = file_get_contents($file);
+            $json = $old;
             $json = str_replace(sprintf($legacy, "I"), "/etc/raspap/networking/wg-killswitch.sh up %i %s %o", $json);
             $json = str_replace(sprintf($legacy, "D"), "/etc/raspap/networking/wg-killswitch.sh down %i", $json);
             // the kill switch and the forwarding rules find the current AP when the tunnel starts
@@ -790,7 +791,16 @@ function _update_wireguard() {
             $forward = "iptables -%1\$s FORWARD -i wlan0 -o %%i -j ACCEPT; iptables -%1\$s FORWARD -i %%i -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT; iptables -t nat -%1\$s POSTROUTING -o %%i -j MASQUERADE";
             $json = str_replace(sprintf($forward, "A"), "/etc/raspap/networking/wg-forward.sh up %i %a", $json);
             $json = str_replace(sprintf($forward, "D"), "/etc/raspap/networking/wg-forward.sh down %i", $json);
-            file_put_contents($file, $json) !== false || exit(1);
+            if ($json === $old) {
+                exit(0);
+            }
+            // the file belongs to www-data in a sticky directory. With
+            // fs.protected_regular=2, root can not open it with O_CREAT, so
+            // open it without O_CREAT
+            $fh = fopen($file, "r+");
+            if ($fh === false || !ftruncate($fh, 0) || fwrite($fh, $json) !== strlen($json) || !fclose($fh)) {
+                exit(1);
+            }
         ' -- "$defaults" || _install_status 1 "Unable to update $defaults"
     fi
 
