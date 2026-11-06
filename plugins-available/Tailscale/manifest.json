@@ -8,30 +8,6 @@
   "plugin_docs": "https://docs.raspap.com/tailscale",
   "license": "GPL-3.0",
   "namespace": "RaspAP\\Plugins\\Tailscale",
-  "configuration": [
-    {
-      "source": "config/tailscale-ethtool@.service",
-      "destination": "/etc/systemd/system/tailscale-ethtool@.service"
-    },
-    {
-      "source": "config/ts-optimize.sh",
-      "destination": "/usr/local/sbin/raspap-ts-optimize.sh"
-    }
-  ],
-  "permissions": [
-    {
-      "file": "/etc/systemd/system/tailscale-ethtool@.service",
-      "owner": "root",
-      "group": "root",
-      "mode": "0644"
-    },
-    {
-      "file": "/usr/local/sbin/raspap-ts-optimize.sh",
-      "owner": "root",
-      "group": "root",
-      "mode": "0755"
-    }
-  ],
   "default_locale": "en_US",
   "dependencies": {
     "tailscale": "1.82.5"
@@ -52,4 +28,3 @@
     "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ts-optimize.sh"
   ]
 }
-

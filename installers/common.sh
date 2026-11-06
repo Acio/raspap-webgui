@@ -86,6 +86,7 @@ function _update_raspap() {
     _update_restapi
     _enable_network_activity_monitor
     _create_plugin_scripts
+    _migrate_firewall_plugin
     _install_complete
 }
 
@@ -420,6 +421,41 @@ function _create_hostapd_scripts() {
 }
 
 # Generate plugin helper scripts
+# Replaces the Firewall plugin of billz/Firewall with the bundled Firewall
+# plugin of the hardened fork. The old plugin ran scripts from /tmp as root and
+# flushed all iptables rules. Only when the old plugin is installed.
+function _migrate_firewall_plugin() {
+    local old="$webroot_dir/plugins/Firewall"
+    local new="$webroot_dir/plugins-available/Firewall"
+    if [ ! -d "$new" ] || [ ! -d "$old" ] || [ -L "$old" ]; then
+        return 0
+    fi
+    _install_log "Replacing the Firewall plugin with the plugin of the hardened fork"
+    sudo rm -rf "$old" || _install_status 1 "Unable to remove the old Firewall plugin"
+    sudo ln -s "$new" "$old" || _install_status 1 "Unable to install the Firewall plugin"
+    sudo chown -h $raspap_user:$raspap_user "$old"
+
+    # the sudo rules of the bundled manifest, without the /tmp scripts
+    local tmp
+    tmp=$(sudo mktemp /etc/sudoers.d/.firewall.XXXXXX) || _install_status 1 "Unable to create a temporary file"
+    php -r 'echo implode(PHP_EOL, json_decode(file_get_contents($argv[1]), true)["sudoers"]).PHP_EOL;' -- "$new/manifest.json" |
+        sudo tee "$tmp" > /dev/null || { sudo rm -f "$tmp"; _install_status 1 "Unable to write the Firewall sudo rules"; }
+    sudo chmod 440 "$tmp"
+    if sudo visudo -cqf "$tmp"; then
+        sudo mv -f "$tmp" /etc/sudoers.d/090_Firewall || _install_status 1 "Unable to install the Firewall sudo rules"
+    else
+        sudo rm -f "$tmp"
+        _install_status 1 "Invalid Firewall sudo rules"
+    fi
+    sudo mkdir -p "$webroot_dir/app/js/plugins"
+    sudo install -o $raspap_user -g $raspap_user -m 644 "$new/templates/app/js/Firewall.js" "$webroot_dir/app/js/plugins/Firewall.js" ||
+        _install_status 1 "Unable to install Firewall.js"
+
+    # the rules of the old plugin move to the own chains of the helper
+    sudo /usr/local/sbin/raspap-firewall.sh apply || _install_status 1 "Unable to apply the firewall rules"
+    _install_status 0
+}
+
 function _create_plugin_scripts() {
     _install_log "Creating plugin helper scripts"
     sudo mkdir -p $raspap_dir/plugins || _install_status 1 "Unable to create directory '$raspap_dir/plugins'"
@@ -967,7 +1003,8 @@ function _download_latest_files() {
         rm -rf "$source_dir"
     fi
     git clone --branch $branch --depth 1 --recurse-submodules -c advice.detachedHead=false $git_source_url $source_dir || clone=false
-    git -C $source_dir submodule update --remote plugins || clone=false
+    # the plugins submodule stays at the commit of the release (no --remote).
+    # The plugin list of the hardened fork is config/plugins.json.
 
     if [ "$clone" = false ]; then
         _install_status 1 "Unable to download files from GitHub"
@@ -1437,6 +1474,17 @@ function _patch_system_files() {
     _install_log "Copying RaspAP network tools and log helpers to /usr/local/sbin"
     sudo install -o root -g root -m 755 "$webroot_dir/installers/net.sh" /usr/local/sbin/raspap-net.sh || _install_status 1 "Unable to install network tools helper"
     sudo install -o root -g root -m 755 "$webroot_dir/installers/logs.sh" /usr/local/sbin/raspap-logs.sh || _install_status 1 "Unable to install log helper"
+
+    # The root helper of the Firewall plugin, and the files of the Tailscale
+    # plugin that run as root. plugin_helper.sh refuses these paths, so the
+    # installer installs them.
+    sudo install -o root -g root -m 755 "$webroot_dir/installers/firewall.sh" /usr/local/sbin/raspap-firewall.sh || _install_status 1 "Unable to install firewall helper"
+    local ts_config="$webroot_dir/plugins-available/Tailscale/config"
+    if [ -f "$ts_config/ts-optimize.sh" ] && [ -f "$ts_config/tailscale-ethtool@.service" ]; then
+        sudo install -o root -g root -m 755 "$ts_config/ts-optimize.sh" /usr/local/sbin/raspap-ts-optimize.sh || _install_status 1 "Unable to install ts-optimize.sh"
+        sudo install -o root -g root -m 644 "$ts_config/tailscale-ethtool@.service" /etc/systemd/system/tailscale-ethtool@.service || _install_status 1 "Unable to install tailscale-ethtool@.service"
+        sudo systemctl daemon-reload
+    fi
 
     _install_status 0
 }

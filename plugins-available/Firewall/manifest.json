@@ -1,0 +1,22 @@
+{
+  "name": "Firewall",
+  "version": "v1.1.2-hardened.1",
+  "description": "A Firewall add-on with iptables rules tailored for RaspAP",
+  "author": "zbchristian",
+  "author_uri": "https://github.com/zbchristian",
+  "plugin_uri": "https://github.com/Acio/raspap-webgui/tree/pi/hardened/plugins-available/Firewall",
+  "plugin_docs": "https://docs.raspap.com/firewall/",
+  "license": "GPL-3.0",
+  "namespace": "RaspAP\\Plugins\\Firewall",
+  "default_locale": "en_US",
+  "icon": "fas fa-fire-alt",
+  "install_path": "plugins-available",
+  "javascript": {
+    "source": "templates/app/js/Firewall.js"
+  },
+  "manifest_version": "1.0",
+  "sudoers": [
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-firewall.sh apply",
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-firewall.sh vpn-hosts"
+  ]
+}
