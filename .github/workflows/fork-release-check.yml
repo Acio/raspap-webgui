@@ -1,0 +1,40 @@
+# Checks a published release of the hardened fork. The Pi installs the latest
+# release as root, so a release must be the tested head of pi/hardened with
+# the right version. A failed check sends an email. Read-only token.
+name: Fork release check
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag is RASPI_VERSION of includes/defaults.php
+        run: |
+          version=$(sed -n "s/.*'RASPI_VERSION' => '\([^']*\)'.*/\1/p" includes/defaults.php)
+          echo "tag $TAG, RASPI_VERSION $version"
+          [ "$TAG" = "$version" ]
+      - name: The release is not a pre-release, and it is the latest release
+        run: |
+          [ "$PRERELEASE" = false ]
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          echo "latest release: $latest"
+          [ "$latest" = "$TAG" ]
+      - name: The tagged commit is on pi/hardened
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/pi/hardened
+      - name: Fork CI passed for the tagged commit
+        run: |
+          n=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/fork-ci.yml/runs?head_sha=$GITHUB_SHA&status=success" --jq .total_count)
+          echo "successful Fork CI runs for $GITHUB_SHA: $n"
+          [ "$n" -gt 0 ]

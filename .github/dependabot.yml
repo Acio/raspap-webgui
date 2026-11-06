@@ -1,0 +1,36 @@
+# Dependabot of the hardened fork. The pull requests go to pi/hardened, and
+# Fork CI tests them.
+version: 2
+updates:
+  # the actions of the workflows. The upstream workflows are disabled on the
+  # fork, so their actions are ignored.
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: pi/hardened
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: github/codeql-action
+      - dependency-name: Codesee-io/codesee-action
+      - dependency-name: actions/stale
+      - dependency-name: usimd/pi-gen-action
+      - dependency-name: svenstaro/upload-release-action
+      - dependency-name: devopsx/action-torrent
+  # the RestAPI modules that the installer installs on the device
+  - package-ecosystem: pip
+    directory: /api
+    target-branch: pi/hardened
+    schedule:
+      interval: weekly
+  # the base image of the test container
+  - package-ecosystem: docker
+    directory: /tests/fork
+    target-branch: pi/hardened
+    schedule:
+      interval: monthly
+  # the plugins submodule: only a signal. config/plugins.json is the plugin list.
+  - package-ecosystem: gitsubmodule
+    directory: /
+    target-branch: pi/hardened
+    schedule:
+      interval: monthly
