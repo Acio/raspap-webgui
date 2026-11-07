@@ -286,16 +286,22 @@ function _install_dependencies() {
         # Manually install isoquery
         _install_log "Installing isoquery from the Debian package repository"
         isoquery_deb="https://ftp.debian.org/debian/pool/main/i/isoquery"
+        # the SHA256 of the Debian (trixie) package index
         if [ "$LONG_BIT" = "64" ]; then
             isoquery_pkg="isoquery_3.3.4-1+b1_arm64.deb"
+            isoquery_sha256="d2f10836ef22134b0c648c6886d991cfda4baeb82b155f763e1afc01fff49adf"
         else
             isoquery_pkg="isoquery_3.3.4-1_armhf.deb"
+            isoquery_sha256="eeec37532fac8f478c271de9423ea71ac95f8a39849903b3c33b5fd479d6ed71"
         fi
         echo "isoquery ARM ${LONG_BIT}-bit package selected"
-        wget $isoquery_deb/$isoquery_pkg -q --show-progress --progress=bar:force -P /tmp || _install_status 1 "Failed to download isoquery"
-        sudo dpkg -x /tmp/$isoquery_pkg /tmp/isoquery/ || _install_status 1 "Failed to extract isoquery"
-        sudo cp /tmp/isoquery/usr/bin/isoquery /usr/local/bin/ || _install_status 1 "Failed to copy isoquery binary"
-        sudo chmod +x /usr/local/bin/isoquery || _install_status 1 "Failed to set executable permissions on isoquery"
+        local isoquery_tmp
+        isoquery_tmp=$(mktemp -d) || _install_status 1 "Unable to create a temporary directory"
+        wget $isoquery_deb/$isoquery_pkg -q --show-progress --progress=bar:force -P "$isoquery_tmp" || _install_status 1 "Failed to download isoquery"
+        echo "$isoquery_sha256  $isoquery_tmp/$isoquery_pkg" | sha256sum -c --quiet - || _install_status 1 "The isoquery package has a wrong SHA256"
+        sudo dpkg -x "$isoquery_tmp/$isoquery_pkg" "$isoquery_tmp/x" || _install_status 1 "Failed to extract isoquery"
+        sudo install -o root -g root -m 755 "$isoquery_tmp/x/usr/bin/isoquery" /usr/local/bin/isoquery || _install_status 1 "Failed to copy isoquery binary"
+        sudo rm -rf "$isoquery_tmp"
     fi
 
     network_tools="curl dnsutils nmap"
@@ -1225,7 +1231,8 @@ function _default_configuration() {
         [ -d /etc/dnsmasq.d ] || sudo mkdir /etc/dnsmasq.d
 
         echo "Copying config/hostapd.conf to /etc/hostapd/hostapd.conf"
-        sudo cp $webroot_dir/config/hostapd.conf /etc/hostapd/hostapd.conf || _install_status 1 "Unable to move hostapd configuration file"
+        # the WiFi password: root and the web interface (group www-data) only
+        sudo install -o root -g www-data -m 640 $webroot_dir/config/hostapd.conf /etc/hostapd/hostapd.conf || _install_status 1 "Unable to move hostapd configuration file"
 
         echo "Copying config/090_raspap.conf to $raspap_default"
         sudo cp $webroot_dir/config/090_raspap.conf $raspap_default || _install_status 1 "Unable to move dnsmasq default configuration file"
@@ -1254,7 +1261,8 @@ function _default_configuration() {
 
         if [ ${OS,,} = "raspbian" ] && [[ ${RELEASE} =~ ^(12) ]]; then
             echo "Moving dhcpcd systemd unit control file to /lib/systemd/system/"
-            sudo mv $webroot_dir/installers/dhcpcd.service /lib/systemd/system/ || _install_status 1 "Unable to move dhcpcd.service file"
+            # a unit that runs as root must belong to root (mv keeps the owner www-data)
+            sudo install -o root -g root -m 644 $webroot_dir/installers/dhcpcd.service /lib/systemd/system/dhcpcd.service || _install_status 1 "Unable to move dhcpcd.service file"
             sudo systemctl daemon-reload
             sudo systemctl enable dhcpcd.service || _install_status 1 "Failed to enable dhcpcd.service"
         fi
@@ -1532,6 +1540,26 @@ function _patch_system_files() {
     # plugin that run as root. plugin_helper.sh refuses these paths, so the
     # installer installs them.
     sudo install -o root -g root -m 755 "$webroot_dir/installers/firewall.sh" /usr/local/sbin/raspap-firewall.sh || _install_status 1 "Unable to install firewall helper"
+    # writes the RestAPI key to .env: www-data no longer moves a file there
+    sudo install -o root -g root -m 755 "$webroot_dir/installers/api-key.sh" /usr/local/sbin/raspap-api-key.sh || _install_status 1 "Unable to install the RestAPI key helper"
+
+    # The units that RaspAP installs run as root, so they belong to root. Older
+    # versions moved some of them from the web root (owner www-data). The
+    # hostapd configurations hold the WiFi password: root and www-data only.
+    local unit
+    for unit in /lib/systemd/system/{dhcpcd,raspapd,restapi,raspap-network-activity@}.service \
+        /etc/systemd/system/{hostapd@,raspap-captive-portal,raspap-captive-portal-cleanup,raspap-uplink-watchdog}.service \
+        /etc/systemd/system/{raspap-captive-portal,raspap-uplink-watchdog}.timer; do
+        if [ -f "$unit" ] && [ ! -L "$unit" ]; then
+            sudo chown root:root "$unit" && sudo chmod go-w "$unit" || _install_status 1 "Unable to change the owner of $unit"
+        fi
+    done
+    local conf
+    for conf in /etc/hostapd/hostapd.conf /etc/hostapd/hostapd-*.conf; do
+        if [ -f "$conf" ] && [ ! -L "$conf" ]; then
+            sudo chown root:www-data "$conf" && sudo chmod 640 "$conf" || _install_status 1 "Unable to change the mode of $conf"
+        fi
+    done
     local ts_config="$webroot_dir/plugins-available/Tailscale/config"
     if [ -f "$ts_config/ts-optimize.sh" ] && [ -f "$ts_config/tailscale-ethtool@.service" ]; then
         sudo install -o root -g root -m 755 "$ts_config/ts-optimize.sh" /usr/local/sbin/raspap-ts-optimize.sh || _install_status 1 "Unable to install ts-optimize.sh"

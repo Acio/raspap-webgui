@@ -96,7 +96,10 @@ install_file() {
             fi
             ;;
     esac
-    if [ -e "$target" ]; then
+    if [ "$kind" = hostapd ]; then
+        # the WiFi password: root and the web interface (group www-data) only
+        chown root:www-data "$tmp" && chmod 640 "$tmp" || die 1 "can not set the mode of $tmp"
+    elif [ -e "$target" ]; then
         chown --reference="$target" "$tmp" && chmod --reference="$target" "$tmp" || die 1 "can not set the mode of $tmp"
     else
         chown root:root "$tmp" && chmod 644 "$tmp" || die 1 "can not set the mode of $tmp"

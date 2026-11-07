@@ -16,7 +16,7 @@ function DisplayRestAPI()
     $dotenv->load();
 
     // set defaults
-    $apiKey = $_ENV['RASPAP_API_KEY'];
+    $apiKey = $_ENV['RASPAP_API_KEY'] ?? '';
 
     if (!RASPI_MONITOR_ENABLED) {
         if (isset($_POST['SaveAPIsettings'])) {

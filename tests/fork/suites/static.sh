@@ -50,8 +50,8 @@ grep -rhoE "(exec|shell_exec|system|passthru)\((\"|')sudo [^\"'\$]*(\"|')" --inc
     grep -v -E '^\./(dist|vendor)/' |
     sed -E "s/^[a-z_]+\(.sudo //; s/.$//; s/ *$//" | sort -u |
     grep -v -x -E '|/bin/systemctl (start|stop)|rm|touch|systemctl stop|mv /tmp/.env|/usr/local/sbin/raspap-net.sh link|/usr/local/sbin/raspap-vnstat.sh add' > /tmp/cmds.txt
-printf '%s\n' '/bin/systemctl stop raspap-network-activity@*.service' 'mv /tmp/.env /etc/raspap/api/.env' \
-    'touch /etc/raspap/api/.env' '/usr/local/sbin/raspap-net.sh link wlan0 up' '/usr/local/sbin/raspap-vnstat.sh add wlan0' \
+printf '%s\n' '/bin/systemctl stop raspap-network-activity@*.service' '/usr/local/sbin/raspap-api-key.sh set' \
+    '/usr/local/sbin/raspap-net.sh link wlan0 up' '/usr/local/sbin/raspap-vnstat.sh add wlan0' \
     '/usr/local/sbin/raspap-firewall.sh apply' '/usr/local/sbin/raspap-firewall.sh vpn-hosts' >> /tmp/cmds.txt
 refused=""
 while IFS= read -r cmd; do

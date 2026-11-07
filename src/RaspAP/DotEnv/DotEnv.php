@@ -37,7 +37,7 @@ class DotEnv
                 }
             }
         } else {
-            throw new \Exception(".env file '{$this->envFile}' not found.");
+            $this->data = [];
         }
     }
 
@@ -64,43 +64,40 @@ class DotEnv
         return $this;
     }
 
+    /**
+     * Saves the RestAPI key with the root helper raspap-api-key.sh. The key
+     * goes on stdin, so it is not in the process list. The helper checks the
+     * key and writes .env as root:www-data 640. The hardened fork: www-data
+     * no longer moves a file of its own to .env.
+     */
     private function store($key, $value)
     {
-        $content = file_get_contents($this->envFile);
-        $content = preg_replace("/^$key=.*/m", "$key=$value", $content, 1, $count);
-        if ($count === 0) {
-            // if key doesn't exist, append it
-            $content .= "$key=$value\n";
+        if ($key !== 'RASPAP_API_KEY') {
+            throw new \Exception("Unable to save $key: only RASPAP_API_KEY is supported");
         }
-        // The key is a secret, and another local user must not prepare the
-        // temporary file, so create it new, readable by owner and group only
-        $tmpFile = '/tmp/.env';
-        if (file_exists($tmpFile) && !is_link($tmpFile) && function_exists('posix_geteuid') && fileowner($tmpFile) === posix_geteuid()) {
-            unlink($tmpFile);
+        $proc = proc_open(
+            ['sudo', '/usr/local/sbin/raspap-api-key.sh', 'set'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            throw new \Exception('Unable to start the RestAPI key helper');
         }
-        $umask = umask(0027);
-        $handle = @fopen($tmpFile, 'x');
-        umask($umask);
-        if ($handle === false) {
-            throw new \Exception("Unable to create $tmpFile");
-        }
-        $written = fwrite($handle, $content);
-        fclose($handle);
-        if ($written !== strlen($content)) {
-            throw new \Exception("Unable to write $tmpFile");
-        }
-        system('sudo mv /tmp/.env '.$this->envFile, $result);
-        if ($result !== 0) {
-            throw new \Exception("Unable to move .env file: ". $this->envFile);
+        fwrite($pipes[0], $value."\n");
+        fclose($pipes[0]);
+        stream_get_contents($pipes[1]);
+        $error = trim((string)stream_get_contents($pipes[2]));
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        if (proc_close($proc) !== 0) {
+            throw new \Exception('Unable to save the API key: '.$error);
         }
     }
 
     protected function createEnv()
     {
-        exec('sudo touch '. escapeshellarg($this->envFile), $output, $result);
-        if ($result !== 0) {
-            throw new \Exception("Unable to create .env file: ". $this->envFile);
-        }
+        // the installer makes .env with a key. Without .env there is no key,
+        // and the helper makes the file when a key is saved.
     }
 }
 

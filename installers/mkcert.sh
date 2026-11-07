@@ -66,8 +66,13 @@ function _config_installation() {
 # Installs pre-built mkcert binary for Arch Linux ARM
 function _install_mkcert() {
     _install_log "Fetching mkcert binary"
-    sudo wget -q ${git_source_url}/mkcert-v${mkcert_version}-linux-arm -O /usr/local/bin/mkcert || _install_error "Unable to download mkcert"
-    sudo chmod +x /usr/local/bin/mkcert
+    # the SHA256 of mkcert-v1.4.1-linux-arm, pinned by the hardened fork
+    local mkcert_sha256="15f04f23b3c8fcb3ac00ba089d87bb507b5b2283d42fbe2123e2c74eaa672527" tmp
+    tmp=$(mktemp) || _install_error "Unable to create a temporary file"
+    wget -q ${git_source_url}/mkcert-v${mkcert_version}-linux-arm -O "$tmp" || _install_error "Unable to download mkcert"
+    echo "$mkcert_sha256  $tmp" | sha256sum -c --quiet - || _install_error "The mkcert binary has a wrong SHA256"
+    sudo install -o root -g root -m 755 "$tmp" /usr/local/bin/mkcert || _install_error "Unable to install mkcert"
+    rm -f "$tmp"
 
     _install_log "Installing mkcert"
     mkcert -install || _install_error "Failed to install mkcert"

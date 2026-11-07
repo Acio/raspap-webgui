@@ -302,17 +302,6 @@ class Firewall implements PluginInterface
         return;
     }
 
-    // Static method to load persisted data
-    public static function loadData(): ?self
-    {
-        $filePath = "/tmp/plugin__".self::getName() .".data";
-        if (file_exists($filePath)) {
-            $data = file_get_contents($filePath);
-            return unserialize($data);
-        }
-        return null;
-    }
-
     // Returns an abbreviated class name
     public static function getName(): string
     {

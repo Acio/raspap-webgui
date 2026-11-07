@@ -212,7 +212,7 @@ function _restore_networking() {
     if [ -x /usr/local/sbin/raspap-firewall.sh ]; then
         sudo /usr/local/sbin/raspap-firewall.sh remove || _install_error "Unable to remove the firewall rules"
     fi
-    sudo rm -f /usr/local/sbin/raspap-firewall.sh /usr/local/sbin/raspap-ts-optimize.sh \
+    sudo rm -f /usr/local/sbin/raspap-firewall.sh /usr/local/sbin/raspap-ts-optimize.sh /usr/local/sbin/raspap-api-key.sh \
         /etc/systemd/system/tailscale-ethtool@.service /etc/sudoers.d/090_Firewall ||
         _install_error "Unable to remove the plugin helpers"
     sudo rm -f /usr/local/sbin/raspap-iptables-save.sh || _install_error "Unable to remove raspap-iptables-save.sh"

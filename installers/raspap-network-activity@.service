@@ -5,10 +5,22 @@ Description=RaspAP Network Activity Monitor for %I
 After=network.target
 
 [Service]
+# The monitor only reads /proc/net/dev and writes /dev/shm/net_activity, so
+# it does not run as root (hardened fork). An older version wrote the files
+# as root: the + runs this removal with full privileges.
+ExecStartPre=+/bin/rm -f /dev/shm/net_activity /dev/shm/net_activity.new
 ExecStart=/usr/local/bin/raspap-network-monitor %i
 Restart=always
 RestartSec=2
-User=root
+DynamicUser=yes
+CapabilityBoundingSet=
+PrivateNetwork=no
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=yes
 
 [Install]
 WantedBy=multi-user.target
