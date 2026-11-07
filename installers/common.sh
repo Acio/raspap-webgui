@@ -915,8 +915,43 @@ function _restapi_env_access() {
     sudo systemctl daemon-reload
 }
 
+# The RestAPI modules are in a venv in $raspap_dir/api/venv, not in the system
+# Python. The venv belongs to root: raspap-api can run it, but not change it.
+# Returns 1 when the venv can not import the modules.
+function _restapi_venv() {
+    local venv="$raspap_dir/api/venv"
+    # Debian has ensurepip, which venv needs, in the package python3-venv
+    if ! dpkg-query -W -f='${Status}' python3-venv 2> /dev/null | grep -q "ok installed"; then
+        sudo apt-get install -y python3-venv || { echo "Unable to install python3-venv" >&2; return 1; }
+    fi
+    if [ ! -x "$venv/bin/python" ]; then
+        sudo python3 -m venv "$venv" || { echo "Unable to create $venv" >&2; return 1; }
+    fi
+    sudo "$venv/bin/pip" install -q -r "$raspap_dir/api/requirements.txt" || { echo "Unable to install the RestAPI modules" >&2; return 1; }
+    sudo chown -R root:root "$venv"
+    sudo "$venv/bin/python" -c 'import fastapi, uvicorn, dotenv, psutil' || { echo "The RestAPI venv is incomplete" >&2; return 1; }
+}
+
+# The service runs as the system user raspap-api, not as root or the user
+# that installs RaspAP
+function _restapi_user() {
+    if ! id raspap-api > /dev/null 2>&1; then
+        sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin raspap-api ||
+            _install_status 1 "Unable to create the user raspap-api"
+    fi
+}
+
+# Installs the unit of the release: User=raspap-api, Python of the venv
+function _restapi_unit() {
+    sudo install -o root -g root -m 644 "$webroot_dir/installers/restapi.service" /lib/systemd/system/restapi.service ||
+        _install_status 1 "Unable to install restapi.service"
+    sudo systemctl daemon-reload
+}
+
 # Copies the RestAPI code of the update to $raspap_dir/api, and makes a key
 # when there is none. Only when the RestAPI is installed. .env stays.
+# The hardened fork also moves an older install to the venv and to the user
+# raspap-api. The service stays enabled or disabled as it was.
 function _update_restapi() {
     if [ ! -d "$raspap_dir/api" ]; then
         return 0
@@ -927,6 +962,14 @@ function _update_restapi() {
     fi
     _restapi_key
     _restapi_env_access
+    if _restapi_venv; then
+        _restapi_user
+        _restapi_unit
+    else
+        # the old unit stays, so that a failed download does not stop a
+        # RestAPI that works
+        _install_status 2 "The RestAPI venv is not complete, the RestAPI service is not changed"
+    fi
     sudo systemctl try-restart restapi.service
     _install_status 0
 }
@@ -939,31 +982,14 @@ function _install_restapi() {
     sudo chown -R root:root "$raspap_dir/api" || _install_status 1 "Unable to change owner of api folder"
 
     if ! command -v python3 &> /dev/null; then
-        echo "Python is not installed. Installing Python..."
-        sudo apt update
-        sudo apt install -y python3 python3-pip
-        echo "Python installed successfully."
-    else
-        echo "Python is already installed."
-        sudo apt install python3-pip -y
-        
+        sudo apt-get update
+        sudo apt-get install -y python3 || _install_status 1 "Unable to install Python"
     fi
-    # system-wide, so that the service user raspap-api can import the modules
-    sudo python3 -m pip install -r "$raspap_dir/api/requirements.txt" --break-system-packages || _install_status 1 " Unable to install pip modules"
-
-    # The service runs as the system user raspap-api, not as root or the user
-    # that installs RaspAP
-    if ! id raspap-api > /dev/null 2>&1; then
-        sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin raspap-api ||
-            _install_status 1 "Unable to create the user raspap-api"
-    fi
-    echo "Setting restapi service user to raspap-api"
-    sudo sed -i "s/^User=.*/User=raspap-api/" $webroot_dir/installers/restapi.service || _install_status 1 "Unable to set restapi service user"
-    echo "Setting permissions on restapi systemd unit control file"
-    sudo chown -c root:root $webroot_dir/installers/restapi.service || _install_status 1 "Unable change owner and/or group"
-    echo "Moving restapi systemd unit control file to /lib/systemd/system/"
-    sudo mv $webroot_dir/installers/restapi.service /lib/systemd/system/ || _install_status 1 "Unable to move restapi.service file"
-    sudo systemctl daemon-reload
+    # the modules go into a venv, not into the system Python
+    _restapi_venv || _install_status 1 "Unable to install the RestAPI modules"
+    _restapi_user
+    echo "Installing restapi.service (user raspap-api, Python of the venv)"
+    _restapi_unit
     _restapi_key
     _restapi_env_access
     sudo systemctl enable restapi.service || _install_status 1 "Failed to enable restapi.service"
