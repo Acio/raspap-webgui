@@ -13,6 +13,9 @@ eval "$(sed -n '/^function _get_release()/,/^}/p' "$S/installers/raspbian.sh")"
 curl() { echo '{"tag_name": "3.5.9.9", "name": "3.5.9.9"}'; }
 out=$( (repo=Acio/raspap-webgui; _get_release && echo "TAG $RASPAP_LATEST") 2>&1 )
 c "release lookup reads the tag" 'echo "$out" | grep -qx "TAG 3.5.9.9"'
+curl() { echo '{"url":"x","tag_name":"3.5.9.8","name":"3.5.9.8"}'; }
+out=$( (repo=Acio/raspap-webgui; _get_release && echo "TAG $RASPAP_LATEST") 2>&1 )
+c "release lookup reads the tag from minified JSON" 'echo "$out" | grep -qx "TAG 3.5.9.8"'
 curl() { echo '{"message": "Not Found"}'; }
 out=$( (repo=Acio/raspap-webgui; _get_release && echo "TAG $RASPAP_LATEST") 2>&1 )
 c "no release: the update stops before a download" 'echo "$out" | grep -q "Failed to fetch latest release" && ! echo "$out" | grep -q TAG'
