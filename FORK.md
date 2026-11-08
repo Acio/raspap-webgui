@@ -20,6 +20,7 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 | Plugin data | The bundled plugins keep their data in the private cache directory. | `bd08f907` | none |
 | Config files | `raspap-config-file.sh` installs the hostapd, dhcpcd and dnsmasq files from stdin, with an option filter. dnsmasq files get only the options of the web interface (an allowlist), and `custom.txt` only hosts lines. hostapd files are root:www-data 640. | `cf0d7c68`, `0d51f2db`, `5cc26041` | smallbugs, hardening, adblock |
 | Ad blocking | `update_blocklist.sh` takes only a list name. The URL and the target file come from the root-owned `/etc/raspap/adblock/blocklists.json`. The script keeps only blocking lines, because dnsmasq reads `domains.txt` as its configuration. An update filters the installed lists again (`update_blocklist.sh clean`). | `5cc26041` | adblock |
+| HaGeZi blocklists | The 5 HaGeZi lists use the dnsmasq files of hagezi/dns-blocklists and replace `domains.txt`. The hosts files of that repository give 404. | `d59b1880` | adblock |
 | VPN files | `raspap-vpn-file.sh` installs, reads and removes the WireGuard and OpenVPN files. | `0d402c3b` | static (sudo commands) |
 | WiFi client | `raspap-wifi.sh` runs wpa_cli, wpa_supplicant and iw with checked arguments. | `321b4a59` | smallbugs (sudo rules) |
 | Network tools and logs | `raspap-net.sh` and `raspap-logs.sh` run ip, iw, nmap and wvdial, and read and clear the logs. `clearlog.php` clears only the 3 logs. | `a611aef5` | smallbugs |
@@ -29,12 +30,15 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 | Firewall plugin | The bundled Firewall plugin applies its rules with `raspap-firewall.sh` in own chains. An update replaces billz/Firewall. | `1a84ccbe`, `613ae46f`, `0d51f2db` | firewall, plugins, hardening |
 | Plugin installs | The browser sends only the plugin name. The source comes from `config/plugins.json`. | `12fe5392` | plugins |
 | Plugin helper | `plugin_helper.sh` refuses protected paths and unsafe sudo rules. | `e95ec97c` | plugins |
+| NTP Server plugin | The bundled NTP Server plugin replaces billz/NTPServer. It writes `ntp.conf` only through the root helper `raspap-ntp.sh`. The helper accepts only the directives of the Debian configuration, with fixed file paths. The update replaces an installed billz/NTPServer. | `4311f8db` | plugins |
 | Units | The units of RaspAP belong to root. The network monitor runs without root. | `0d51f2db` | hardening |
 | Downloads | isoquery and mkcert have a SHA256 pin. | `0d51f2db` | hardening |
 | Security headers | Each PHP page and ajax answer sends `X-Frame-Options: DENY`, a CSP against frames, `nosniff`, `Referrer-Policy: same-origin` and `Cache-Control: no-store` (`includes/session.php`). | `c06a668d` | hardening |
 | Idle timeout | The server ends a session after `RASPI_SESSION_TIMEOUT` seconds without a page. A page goes to the login, an ajax request gets 401 and `session.js` shows the expired window. `login()` resets the idle time. | `c06a668d` | hardening |
 | Error page | All users see a reference of the log line. Only the admin user sees the message and the trace (escaped). No X-Debug headers. `login()` saves the role. Fatal errors also get the page. | `c06a668d` | hardening |
+| Error log | The error log is `/var/log/raspap/error.log` with mode 640, not `/tmp/raspap_error.log`. The update moves the old log and changes the default path in `config.php`. | `4f33d24b` | hardening, update |
 | Channel warning | The dashboard and the hotspot, client and network pages show a warning. It shows when the hotspot channel overlaps the channel of the wireless uplink, or is less than 40 MHz from it. The warning suggests a far channel (`ChannelOverlap`). The pages check again every minute, because the uplink channel changes when the device connects to another network. | `355a2092` | channels |
+| PHP warnings | `getDefaultNetValue()` returns false for an interface without defaults. The RestAPI page and `index.php` give no warning. | `aff91e34` | smallbugs |
 | Web libraries | jQuery 3.7.1, DataTables 1.13.11 and Chart.js 2.9.4 in `dist/`. `package.json` lists the libraries in `dist/`, without a build. | `cc338d4c`, `cf3a041c` | static |
 | Tests and CI | `tests/fork`, Fork CI, the release check and Dependabot. | `15c79397`, `e46e0754` | all |
 | README | The fork notice and how to install the fork. | `7e66a338`, `72dd5875` | none |
@@ -48,7 +52,7 @@ These changes have no own test yet. Examine them by hand after an upstream merge
 
 - The plugin data in the private cache directory (`bd08f907`).
 - The option filters of `raspap-config-file.sh` for hostapd and dhcpcd, and the checks of `raspap-vpn-file.sh`, `raspap-wifi.sh`, `raspap-net.sh` and `raspap-logs.sh`.
-- The systemd options of `restapi.service` and `raspap-network-activity@.service`. The test container has no systemd, so test them on a device.
+- The systemd options of `restapi.service` and `raspap-network-activity@.service`. The test container has no systemd, so test them on a device. The Pi passed a test by hand on 2026-11-08. The RestAPI runs as `raspap-api` without capabilities and with `NoNewPrivileges`. It can not write to its venv, and it answers 403 without the key.
 
 ## Settings that are not in git
 
