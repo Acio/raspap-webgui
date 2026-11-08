@@ -63,16 +63,34 @@ check_dhcpcd() {
 }
 
 check_dnsmasq() {
+    # an allowlist of the options that the web interface writes. Each other
+    # option is refused, also an option with spaces around "=".
     awk -v adblock="$adblock_dir" '
         /^[[:space:]]*(#|$)/ { next }
         {
-            line = $0; sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line)
+            line = $0
+            sub(/[[:space:]]+#.*$/, "", line)
+            sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line)
+            if (line !~ /^[a-z-]+(=[^[:space:]]*)?$/) { print line; exit 1 }
             key = line; sub(/=.*/, "", key)
             value = line; if (index(line, "=")) { sub(/^[^=]*=/, "", value) } else { value = "" }
-            if (key ~ /^(dhcp-script|dhcp-luascript|dhcp-scriptuser|script-arp|conf-script|user|group|dumpfile|pid-file|enable-tftp|tftp-root|servers-file)$/) { print key; exit 1 }
-            if (key == "conf-dir" && value != "/etc/dnsmasq.d") { print key; exit 1 }
-            if ((key == "conf-file" || key == "addn-hosts") && (index(value, adblock) != 1 || value ~ /\.\./)) { print key; exit 1 }
-            if (key == "log-facility" && value != "/var/log/dnsmasq.log" && value !~ /^[A-Za-z0-9]+$/) { print key; exit 1 }
+            if (key ~ /^(interface|bind-dynamic|bind-interfaces|server|no-resolv|domain-needed|bogus-priv|dhcp-range|dhcp-option|dhcp-host|dhcp-ignore|log-dhcp|log-queries)$/) { next }
+            if (key == "conf-dir" && value == "/etc/dnsmasq.d") { next }
+            if (key == "conf-file" && value == adblock "domains.txt") { next }
+            if (key == "addn-hosts" && (value == adblock "hostnames.txt" || value == adblock "custom.txt")) { next }
+            if (key == "log-facility" && (value == "/var/log/dnsmasq.log" || value ~ /^[A-Za-z0-9]+$/)) { next }
+            print key; exit 1
+        }' "$1"
+}
+
+# The custom blocklist is an addn-hosts file: "<IP address> <name> ..." lines
+# and comments only
+check_hosts() {
+    awk '
+        /^[[:space:]]*(#|$)/ { next }
+        {
+            line = $0; sub(/[[:space:]]*#.*$/, "", line)
+            if (line !~ /^[[:space:]]*[0-9A-Fa-f.:]+[[:space:]]+[A-Za-z0-9_.-]+([[:space:]]+[A-Za-z0-9_.-]+)*[[:space:]]*$/) { print $1; exit 1 }
         }' "$1"
 }
 
@@ -93,6 +111,11 @@ install_file() {
         hostapd|dhcpcd|dnsmasq)
             if ! option="$(check_"$kind" "$tmp")"; then
                 die 2 "option not allowed in the $kind configuration: $option"
+            fi
+            ;;
+        adblock-custom)
+            if ! option="$(check_hosts "$tmp")"; then
+                die 2 "invalid line in the custom blocklist: $option"
             fi
             ;;
     esac

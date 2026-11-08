@@ -26,9 +26,7 @@ if (isset($_POST['blocklist_id'])) {
         exit;
     }
 
-    $list_url = escapeshellcmd($flatList[$blocklist_id]['list_url']);
-    $dest_file = escapeshellcmd($flatList[$blocklist_id]['dest_file']);
-    $dest = pathinfo($dest_file, PATHINFO_FILENAME);
+    $dest = pathinfo($flatList[$blocklist_id]['dest_file'], PATHINFO_FILENAME);
     $scriptPath = RASPI_CONFIG . '/adblock/update_blocklist.sh';
 
     if (!file_exists($scriptPath)) {
@@ -38,7 +36,9 @@ if (isset($_POST['blocklist_id'])) {
         ]);
         exit;
     }
-    exec("sudo $scriptPath $list_url $dest_file " . RASPI_ADBLOCK_LISTPATH, $output, $return_var);
+    // only the name: the script reads the URL and the target file from its
+    // root-owned copy of blocklists.json
+    exec('sudo '.$scriptPath.' '.escapeshellarg($blocklist_id), $output, $return_var);
     echo json_encode([
         'return' => $return_var,
         'output' => $output,

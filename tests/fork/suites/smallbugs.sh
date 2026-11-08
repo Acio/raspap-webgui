@@ -28,30 +28,7 @@ c "system.php passes an empty bind address as an empty argument" 'grep -qF "$pat
 (cd /tmp && bash -c "/etc/raspap/lighttpd/configport.sh '8081' '' /etc/lighttpd/lighttpd.conf raspap.local" > /dev/null 2>&1)
 c "port and an empty bind address: port changes, no server.bind" 'grep -q "^server.port *= 8081" /etc/lighttpd/lighttpd.conf && ! grep -q server.bind /etc/lighttpd/lighttpd.conf'
 
-echo "== update_blocklist.sh (wget replaced by a stub)"
-mkdir -p /etc/raspap/adblock /opt/stub
-cat > /opt/stub/wget <<'EOF'
-#!/bin/bash
-out="" url=""
-while [ $# -gt 0 ]; do case "$1" in -O) out="$2"; shift 2 ;; --) url="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done
-case "$url" in
-    *missing*) exit 8 ;;
-    *empty*) : > "$out" ;;
-    *) echo "0.0.0.0 new.example" > "$out" ;;
-esac
-EOF
-chmod 755 /opt/stub/wget
-L=/etc/raspap/adblock/hostnames.txt
-reset() { echo "0.0.0.0 old.example" > $L; chown root:www-data $L; chmod 664 $L; }
-ub() { PATH="/opt/stub:$PATH" bash "$S/installers/update_blocklist.sh" "$1" hostnames.txt /etc/raspap/adblock/ 2> /dev/null; }
-reset; out=$(ub https://lists.example.org/good.txt); rc=$?
-c "good download: new list, output 0, owner and mode kept" '[ $rc = 0 ] && [ "$out" = 0 ] && grep -q new.example $L && [ "$(stat -c %U:%G:%a $L)" = root:www-data:664 ]'
-reset; out=$(ub https://lists.example.org/missing.txt)
-c "failed download: old list kept, no temporary file" '[ "$out" != 0 ] && grep -q old.example $L && [ "$(ls -A /etc/raspap/adblock | wc -l)" = 1 ]'
-reset; out=$(ub https://lists.example.org/empty.txt)
-c "empty download: old list kept" '[ "$out" != 0 ] && grep -q old.example $L && [ "$(ls -A /etc/raspap/adblock | wc -l)" = 1 ]'
-reset; ub http://lists.example.org/good.txt > /dev/null; rc=$?
-c "a URL that is not https is refused" '[ $rc = 2 ] && grep -q old.example $L'
+# update_blocklist.sh: see the adblock suite (the script takes a list name)
 
 echo "== servicestart.sh"
 timeout 5 bash "$S/installers/servicestart.sh" --unknown > /dev/null 2>&1; rc=$?

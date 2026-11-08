@@ -27,8 +27,6 @@ readonly raspap_sysctl="/etc/sysctl.d/90_raspap.conf"
 readonly raspap_network="$raspap_dir/networking/"
 readonly raspap_router="/etc/lighttpd/conf-available/50-raspap-router.conf"
 readonly rulesv4="/etc/iptables/rules.v4"
-readonly blocklist_hosts="https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-readonly blocklist_domains="https://big.oisd.nl/dnsmasq"
 
 # Use ssh if $ssh is set, otherwise https
 if [ "$ssh" == 1 ]; then
@@ -581,6 +579,16 @@ function _prompt_install_feature() {
     fi
 }
 
+# Installs the blocklist update script and its root-owned copy of the list of
+# blocklists. The script reads the URLs from that copy, not from the web root.
+# Also on an update: the script then filters the installed lists again.
+function _install_blocklist_script() {
+    sudo install -o root -g root -m 750 "$webroot_dir/installers/update_blocklist.sh" "$raspap_dir/adblock/update_blocklist.sh" ||
+        _install_status 1 "Unable to install the blocklist update script"
+    sudo install -o root -g root -m 644 "$webroot_dir/config/blocklists.json" "$raspap_dir/adblock/blocklists.json" ||
+        _install_status 1 "Unable to install the list of blocklists"
+}
+
 # Download adblock lists and enable option
 function _install_adblock() {
     _install_log "Creating ad blocking base configuration (Beta)"
@@ -588,27 +596,18 @@ function _install_adblock() {
         echo "Creating $raspap_dir/adblock"
         sudo mkdir -p "$raspap_dir/adblock"
     fi
-    if [ ! -f /tmp/hostnames.txt ]; then
-        echo "Fetching latest hostnames list"
-        wget ${blocklist_hosts} -q --show-progress --progress=bar:force -O /tmp/hostnames.txt 2>&1 \
-            || _install_status 1 "Unable to download notracking hostnames"
-    fi
-    if [ ! -f /tmp/domains.txt ]; then
-        echo "Fetching latest domains list"
-        wget ${blocklist_domains} -q --show-progress --progress=bar:force -O /tmp/domains.txt 2>&1 \
-            || _install_status 1 "Unable to download notracking domains"
-    fi
-    echo "Adding blocklists to $raspap_dir/adblock"
-    sudo cp /tmp/hostnames.txt $raspap_dir/adblock || _install_status 1 "Unable to move notracking hostnames"
-    sudo cp /tmp/domains.txt $raspap_dir/adblock || _install_status 1 "Unable to move notracking domains"
-
-    echo "Moving and setting permissions for blocklist update script"
-    sudo cp "$webroot_dir/installers/"update_blocklist.sh "$raspap_dir/adblock" || _install_status 1 "Unable to move blocklist update script"
-
-    # Make blocklists writable by www-data group, restrict update scripts to root
-    sudo chown -c root:"$raspap_user" "$raspap_dir/adblock/"*.txt || _install_status 1 "Unable to change owner/group"
-    sudo chown -c root:root "$raspap_dir/adblock/"*.sh || _install_status 1 "Unable to change owner/group"
-    sudo chmod 750 "$raspap_dir/adblock/"*.sh || install_error "Unable to change file permissions"
+    _install_blocklist_script
+    # empty lists first, so that dnsmasq starts also when a download fails
+    local list
+    for list in hostnames.txt domains.txt; do
+        if [ ! -f "$raspap_dir/adblock/$list" ]; then
+            sudo install -o root -g "$raspap_user" -m 644 /dev/null "$raspap_dir/adblock/$list" || _install_status 1 "Unable to create $list"
+        fi
+    done
+    # the default lists, downloaded and filtered by the update script itself
+    echo "Fetching the default blocklists"
+    sudo "$raspap_dir/adblock/update_blocklist.sh" "StevenBlack/hosts (default)" > /dev/null || _install_status 1 "Unable to download the default hostnames list"
+    sudo "$raspap_dir/adblock/update_blocklist.sh" "oisd/big (default)" > /dev/null || _install_status 1 "Unable to download the default domains list"
 
     # Create 090_adblock.conf and write values to /etc/dnsmasq.d
     if [ ! -f "$raspap_adblock" ]; then
@@ -1540,6 +1539,12 @@ function _patch_system_files() {
     # plugin that run as root. plugin_helper.sh refuses these paths, so the
     # installer installs them.
     sudo install -o root -g root -m 755 "$webroot_dir/installers/firewall.sh" /usr/local/sbin/raspap-firewall.sh || _install_status 1 "Unable to install firewall helper"
+    # the blocklist update script reads its URLs from a root-owned file, and
+    # keeps only blocking lines. The installed lists get the same filter.
+    if [ -d "$raspap_dir/adblock" ]; then
+        _install_blocklist_script
+        sudo "$raspap_dir/adblock/update_blocklist.sh" clean || _install_status 1 "Unable to filter the blocklists"
+    fi
     # writes the RestAPI key to .env: www-data no longer moves a file there
     sudo install -o root -g root -m 755 "$webroot_dir/installers/api-key.sh" /usr/local/sbin/raspap-api-key.sh || _install_status 1 "Unable to install the RestAPI key helper"
 
