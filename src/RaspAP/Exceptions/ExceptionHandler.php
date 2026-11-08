@@ -26,8 +26,10 @@ class ExceptionHandler
 
     public static function handleException($exception)
     {
+        // hardened fork: a reference connects the error page to the log line
+        $reference = bin2hex(random_bytes(4));
         $errorMessage = (
-            '[' . date('Y-m-d H:i:s') . '] ' .
+            '[' . date('Y-m-d H:i:s') . '] [' . $reference . '] ' .
             $exception->getMessage() . ' in ' .
             $exception->getFile() . ' on line ' .
             $exception->getLine() . PHP_EOL
@@ -36,23 +38,17 @@ class ExceptionHandler
         error_log($errorMessage, 3, RASPI_ERROR_LOG);
 
         $renderer = new HtmlErrorRenderer();
-        $renderer->render($exception);
+        $renderer->render($exception, $reference);
     }
 
     public static function handleShutdown()
     {
         $error = error_get_last();
         if ($error !== null && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
-            $errorMessage = (
-                '[' . date('Y-m-d H:i:s') . '] ' .
-                $error['message'] . ' in ' .
-                $error['file'] . ' on line ' .
-                $error['line'] . PHP_EOL
-            );
-            error_log($errorMessage, 3, RASPI_ERROR_LOG);
-
-            $renderer = new HtmlErrorRenderer();
-            $renderer->render($exception);
+            // hardened fork: the page shows this error (before, $exception was not set)
+            self::handleException(new \ErrorException(
+                $error['message'], 0, $error['type'], $error['file'], $error['line']
+            ));
         }
     }
 

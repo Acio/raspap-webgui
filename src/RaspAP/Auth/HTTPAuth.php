@@ -46,6 +46,31 @@ class HTTPAuth
     }
 
     /*
+     * Hardened fork: determines if the admin user is logged in. A session
+     * from before the role was saved counts as not admin.
+     * return boolean
+     */
+    public function isAdmin(): bool
+    {
+        return $this->isLogged() && ($_SESSION['user_role'] ?? null) === 'admin';
+    }
+
+    /*
+     * Hardened fork: determines if the session was idle for
+     * RASPI_SESSION_TIMEOUT seconds or more (the same limit as
+     * ajax/session/do_check_session.php). Each page sets lastActivity.
+     * return boolean
+     */
+    public function isIdle(): bool
+    {
+        if (!defined('RASPI_SESSION_TIMEOUT') || (int)RASPI_SESSION_TIMEOUT <= 0) {
+            return false;
+        }
+        $last = (int)($_SESSION['lastActivity'] ?? time());
+        return time() - $last >= (int)RASPI_SESSION_TIMEOUT;
+    }
+
+    /*
      * Authenticate a user using HTTP basic auth
      */
     public function authenticate()
@@ -86,6 +111,9 @@ class HTTPAuth
             // a new session id, so a session id from before the login is not valid
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user;
+            // hardened fork: the role for isAdmin(), and the idle time starts now
+            $_SESSION['user_role'] = $role === 'admin' ? 'admin' : 'limited';
+            $_SESSION['lastActivity'] = time();
             return true;
         }
         return false;

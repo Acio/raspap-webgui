@@ -17,6 +17,12 @@ export function initSession_ajax() {
                 showSessionExpiredModal();
             }
         }).fail(function (jqXHR, status, err) {
+            // the server ended the session (idle timeout)
+            if (jqXHR.status === 401) {
+                clearInterval(sessionCheckInterval);
+                showSessionExpiredModal();
+                return;
+            }
             console.error("Error checking session status:", status, err);
         });
     }

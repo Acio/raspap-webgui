@@ -21,36 +21,47 @@ class HtmlErrorRenderer
         $this->charset = 'UTF-8';
         $this->projectDir = dirname(__DIR__, 3);
         $this->template = '/templates/exception.php';
-        $this->debug = true;
     }
 
-    public function render($exception)
+    /**
+     * Hardened fork: all users get a page with only the reference of the log
+     * line. Only a logged-in admin user also gets the message and the trace.
+     * The response has no X-Debug headers.
+     */
+    public function render($exception, string $reference = '')
     {
-        $message = $exception->getMessage();
-        $code = $exception->getCode();
-        $file = $exception->getFile();
-        $line = $exception->getLine();
-        $trace = $this->getExceptionTraceAsString($exception); 
+        $details = self::showDetails();
+        $message = $details ? $exception->getMessage() : '';
+        $code = $details ? $exception->getCode() : '';
+        $file = $details ? $exception->getFile() : '';
+        $line = $details ? $exception->getLine() : '';
+        $trace = $details ? $this->getExceptionTraceAsString($exception) : '';
 
-        header('Content-Type: text/html; charset='.$this->charset);
-        if ($this->debug) {
-            header('X-Debug-Exception: '. rawurlencode($message));
-            header('X-Debug-Exception-File: '. rawurlencode($file).':'.$line);
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/html; charset='.$this->charset);
+            header('Cache-Control: no-store');
         }
-        $__template_data = compact(
-            "message",
-            "code",
-            "file",
-            "line",
-            "trace"
-        );
-        if (is_array($__template_data)) {
-            extract($__template_data);
-        } 
-        $file = $this->projectDir . $this->template;
+        // the template uses the variables above ($file is the file of the
+        // exception, not the template)
         ob_start();
-        include $file;
+        include $this->projectDir . $this->template;
         echo ob_get_clean();
+    }
+
+    /**
+     * Hardened fork: true only when the admin user is logged in
+     */
+    private static function showDetails(): bool
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return false;
+        }
+        try {
+            return (new \RaspAP\Auth\HTTPAuth())->isAdmin();
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
@@ -97,7 +108,7 @@ class HtmlErrorRenderer
         }
         $result = join(PHP_EOL, $result);
         if ($prev) {
-            $result  .= PHP_EOL . getExceptionTraceAsString($prev, $seen);
+            $result  .= PHP_EOL . $this->getExceptionTraceAsString($prev, $seen);
         }
         return $result;
     }

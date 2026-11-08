@@ -1,5 +1,17 @@
 <?php
 
+// Hardened fork: security headers for each PHP page and ajax response.
+// The web interface is not shown in a frame of another site, the browser
+// does not guess content types, the full URL is not sent to other sites,
+// and the browser does not keep copies of the pages and responses.
+if (!headers_sent()) {
+    header('X-Frame-Options: DENY');
+    header("Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'");
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: same-origin');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+}
+
 if (session_status() == PHP_SESSION_NONE) {
     // the session cookie: not readable by scripts, not sent with requests
     // from other sites, and only sent over HTTPS when the page uses HTTPS
@@ -15,4 +27,3 @@ if (session_status() == PHP_SESSION_NONE) {
 if (!isset($_SESSION['lastActivity'])) {
     $_SESSION['lastActivity'] = time();
 }
-
