@@ -124,4 +124,28 @@ out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "incl
     echo $r;' 2>&1)
 c "login() saves the admin role and resets the idle time" '[ "$out" = "--LA-" ]'
 
+
+echo "== DHCP form (DnsmasqManager::validate)"
+cat > /tmp/dv.php <<'P'
+<?php
+chdir('/var/www/html');
+require 'includes/config.php'; require 'includes/autoload.php'; require 'includes/functions.php';
+$base = ['static_leases' => ['mac' => ['aa:bb:cc:dd:ee:ff'], 'ip' => ['10.3.141.20'], 'comment' => ['nas']],
+         'server' => ['9.9.9.9', '1.1.1.1#53', '/lan.example/192.168.1.1', '/ads.example/', '2606:4700:4700::1111'], 'DNS1' => '9.9.9.9', 'DNS2' => ''];
+$case = json_decode($argv[1], true);
+$post = array_replace_recursive($base, $case);
+if (isset($case['__server'])) { $post['server'] = $case['__server']; }
+echo count((new RaspAP\Networking\Hotspot\DnsmasqManager())->validate($post));
+P
+dv() { sudo -u www-data php /tmp/dv.php "$1" 2>&1; }
+c "valid values: no errors" '[ "$(dv "{}")" = 0 ]'
+for bad in '{"__server":["x\"><svg/onload=alert(1)>"]}' '{"__server":["9.9.9.9 log-queries"]}' '{"__server":["9.9.9.9\nlog-dhcp"]}' \
+    '{"__server":["1.1.1.1#99999"]}' '{"__server":"9.9.9.9"}' '{"DNS1":"1.1.1.1,8.8.8.8"}' '{"DNS2":"evil"}' \
+    '{"static_leases":{"mac":["aa:bb:cc:dd:ee:ff\nxyz"]}}' '{"static_leases":{"comment":["a\nserver=6.6.6.6"]}}' \
+    '{"static_leases":{"comment":["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]}}' '{"static_leases":{"ip":["10.3.141.20,10.3.141.21"]}}'; do
+    c "refused: $bad" '[ "$(dv "$bad")" -ge 1 ] 2>/dev/null'
+done
+c "the DHCP page escapes the upstream servers and the lease time" 'grep -q "value=\"<?php echo htmlspecialchars((string)\$server, ENT_QUOTES); ?>\"" "$S/templates/dhcp/advanced.php" && grep -q "htmlspecialchars(\$data\[.leaseTime.\]" "$S/templates/dhcp/summary.php"'
+c "dhcp.php does not save dnsmasq after a failed dhcpcd check" 'awk "/function saveDHCPConfig/,/^}/" "$S/includes/dhcp.php" | grep -q "return false;"'
+
 finish

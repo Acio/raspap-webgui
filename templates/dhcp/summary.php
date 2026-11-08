@@ -70,7 +70,7 @@
                       echo $parts
                         ? implode(' - ', $parts) . (
                           $data['leaseTime']
-                            ? ' (' . ($data['leaseTime'] . $data['leaseTimeInterval'] ?? '—') . ')'
+                            ? ' (' . htmlspecialchars($data['leaseTime'] . ($data['leaseTimeInterval'] ?? '')) . ')'
                             : ''
                         )
                         : '<span class="text-muted">—</span>';

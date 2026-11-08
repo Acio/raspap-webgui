@@ -145,6 +145,9 @@ function saveDHCPConfig($status)
         foreach ($errors as $error) {
             $status->addMessage($error, 'danger');
         }
+        // hardened fork: the dnsmasq configuration uses the same values
+        // (DHCP range, subnet mask), so it does not change either
+        return false;
     }
 
     // dnsmasq: remove if DHCP was previously enabled but now disabled

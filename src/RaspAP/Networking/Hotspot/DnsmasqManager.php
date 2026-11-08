@@ -274,20 +274,88 @@ class DnsmasqManager
         $encounteredIPs = [];
 
         if (isset($post_data["static_leases"]["mac"])) {
-            for ($i=0; $i < count($post_data["static_leases"]["mac"]); $i++) {
-                $mac = trim($post_data["static_leases"]["mac"][$i]);
-                $ip  = trim($post_data["static_leases"]["ip"][$i]);
-                if (!validateMac($mac)) {
-                    $errors[] = _('Invalid MAC address: '.$mac);
+            $leases = $post_data["static_leases"];
+            if (!is_array($leases["mac"]) || !is_array($leases["ip"] ?? null)) {
+                return [_('Invalid static leases')];
+            }
+            for ($i=0; $i < count($leases["mac"]); $i++) {
+                $mac = trim((string)$leases["mac"][$i]);
+                $ip  = trim((string)($leases["ip"][$i] ?? ''));
+                $comment = (string)($leases["comment"][$i] ?? '');
+                // hardened fork: validateMac() ignores other characters, but
+                // the value goes into the configuration as it is
+                if (!validateMac($mac) || !preg_match('/^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/D', $mac)) {
+                    $errors[] = sprintf(_('Invalid MAC address: %s'), $mac);
                 }
-                if (in_array($ip, $encounteredIPs)) {
-                    $errors[] = _('Duplicate IP address entered: ' . $ip);
+                // hardened fork: the values go into the dnsmasq configuration
+                if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    $errors[] = sprintf(_('Invalid IP address: %s'), $ip);
+                }
+                if (!self::validComment($comment)) {
+                    $errors[] = _('Invalid comment: use at most 64 characters, without control characters');
+                }
+                if (in_array($ip, $encounteredIPs, true)) {
+                    $errors[] = sprintf(_('Duplicate IP address entered: %s'), $ip);
                 } else {
                     $encounteredIPs[] = $ip;
                 }
             }
         }
+        // hardened fork: the upstream DNS servers and the DNS options go into
+        // the dnsmasq configuration, and the DHCP page shows them again
+        $servers = $post_data['server'] ?? [];
+        if (!is_array($servers)) {
+            $errors[] = _('Invalid upstream DNS server');
+        } else {
+            foreach ($servers as $server) {
+                if (!self::validUpstreamServer((string)$server)) {
+                    $errors[] = sprintf(_('Invalid upstream DNS server: %s'), (string)$server);
+                }
+            }
+        }
+        foreach (['DNS1', 'DNS2'] as $key) {
+            $dns = $post_data[$key] ?? '';
+            if ($dns !== '' && !filter_var((string)$dns, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $errors[] = sprintf(_('Invalid DNS server: %s'), (string)$dns);
+            }
+        }
         return $errors;
+    }
+
+    /**
+     * Hardened fork: an upstream server of dnsmasq: an IP address with an
+     * optional #port, or /domain/[/domain/...] with an optional address
+     *
+     * @param string $server
+     * @return bool
+     */
+    public static function validUpstreamServer(string $server): bool
+    {
+        $addr = function (string $a): bool {
+            if (preg_match('/^(.+)#([0-9]{1,5})$/D', $a, $m)) {
+                $a = $m[1];
+                if ((int)$m[2] < 1 || (int)$m[2] > 65535) {
+                    return false;
+                }
+            }
+            return filter_var($a, FILTER_VALIDATE_IP) !== false;
+        };
+        if (preg_match('#^((?:/[A-Za-z0-9_.-]{1,253})+)/(.*)$#D', $server, $m)) {
+            return $m[2] === '' || $m[2] === '#' || $addr($m[2]);
+        }
+        return $addr($server);
+    }
+
+    /**
+     * Hardened fork: a static lease comment: at most 64 characters, without
+     * control characters (a new line would add a configuration line)
+     *
+     * @param string $comment
+     * @return bool
+     */
+    public static function validComment(string $comment): bool
+    {
+        return preg_match('/^[^\x00-\x1F\x7F]{0,64}$/Du', $comment) === 1;
     }
 
     /**
