@@ -141,9 +141,10 @@ _install_log() { :; }
 _install_status() { [ "$1" = 0 ] || { echo "STATUS $*"; return 1; }; }
 webroot_dir=$W
 raspap_user=www-data
+raspap_dir=/etc/raspap
 eval "$(sed -n '/^function _migrate_to_bundled_plugin()/,/^}/p;/^function _migrate_firewall_plugin()/,/^}/p;/^function _migrate_ntpserver_plugin()/,/^}/p' "$S/installers/common.sh")"
 out=$(_migrate_firewall_plugin 2>&1); rc=$?
-c "migration ran (rc $rc)" '[ $rc = 0 ]'
+c "migration ran through plugin_helper.sh (rc $rc)" '[ $rc = 0 ] && ! echo "$out" | grep -q STATUS'
 c "plugins/Firewall is now the bundled plugin" '[ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ]'
 c "090_Firewall without /tmp rules, root 440" '! grep -q /tmp /etc/sudoers.d/090_Firewall && grep -q "raspap-firewall.sh apply" /etc/sudoers.d/090_Firewall && [ "$(stat -c %U:%a /etc/sudoers.d/090_Firewall)" = root:440 ]'
 c "rules in the own chain, old flat rules gone" 'iptables -S RASPAP_FW_INPUT | grep -q -- "-i lo -j ACCEPT" && ! iptables -S INPUT | grep -q -- "-A INPUT -i lo" && ! iptables -S INPUT | grep -q -- "--state RELATED"'
@@ -157,7 +158,9 @@ cp "$S/tests/fork/fixtures/manifests/billz-NTPServer.json" "$W/plugins/NTPServer
 chown -R www-data "$W/plugins/NTPServer"
 manifest_sudoers "$S/tests/fork/fixtures/manifests/billz-NTPServer.json" > /etc/sudoers.d/090_NTPServer
 chmod 440 /etc/sudoers.d/090_NTPServer
+printf '#!/bin/sh\necho "apt-get $*" >> /tmp/apt.log\n' > /usr/local/sbin/apt-get; chmod 755 /usr/local/sbin/apt-get
 out=$(_migrate_ntpserver_plugin 2>&1); rc=$?
+rm -f /usr/local/sbin/apt-get
 c "migration ran (rc $rc)" '[ $rc = 0 ]'
 c "plugins/NTPServer is now the bundled plugin, NTPServer.js installed" '[ "$(readlink "$W/plugins/NTPServer")" = "$W/plugins-available/NTPServer" ] && [ -f "$W/app/js/plugins/NTPServer.js" ]'
 c "090_NTPServer: only the helper, no /tmp and no wildcards, root 440" '! grep -qE "/tmp|\*|systemctl|ntpq" /etc/sudoers.d/090_NTPServer && [ "$(grep -c "raspap-ntp.sh" /etc/sudoers.d/090_NTPServer)" = 5 ] && [ "$(stat -c %U:%a /etc/sudoers.d/090_NTPServer)" = root:440 ]'

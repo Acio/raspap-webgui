@@ -454,37 +454,19 @@ function _create_hostapd_scripts() {
 }
 
 # Generate plugin helper scripts
-# Replaces a downloaded plugin with the bundled plugin of the hardened fork:
-# a symlink to plugins-available, the sudo rules of the bundled manifest and
-# its JavaScript. Only when the downloaded plugin is installed.
-# Usage: _migrate_to_bundled_plugin <plugin name> <sudoers name> <JavaScript file>
+# Replaces a downloaded plugin with the bundled plugin of the hardened fork.
+# plugin_helper.sh installs the bundled plugin from its root-owned copies, with
+# the same checks as an install from the web interface: the link, the sudo
+# rules and the JavaScript. Only when the downloaded plugin is installed.
+# Usage: _migrate_to_bundled_plugin <name in the plugin list> <plugin directory>
 function _migrate_to_bundled_plugin() {
-    local name="$1" rules="/etc/sudoers.d/$2" js="$3"
-    local old="$webroot_dir/plugins/$name"
-    local new="$webroot_dir/plugins-available/$name"
-    if [ ! -d "$new" ] || [ ! -d "$old" ] || [ -L "$old" ]; then
+    local name="$1" old="$webroot_dir/plugins/$2"
+    if [ ! -d "$webroot_dir/plugins-available/$2" ] || [ ! -d "$old" ] || [ -L "$old" ]; then
         return 1
     fi
     _install_log "Replacing the $name plugin with the plugin of the hardened fork"
     sudo rm -rf "$old" || _install_status 1 "Unable to remove the old $name plugin"
-    sudo ln -s "$new" "$old" || _install_status 1 "Unable to install the $name plugin"
-    sudo chown -h $raspap_user:$raspap_user "$old"
-
-    # the sudo rules of the bundled manifest
-    local tmp
-    tmp=$(sudo mktemp /etc/sudoers.d/.plugin.XXXXXX) || _install_status 1 "Unable to create a temporary file"
-    php -r 'echo implode(PHP_EOL, json_decode(file_get_contents($argv[1]), true)["sudoers"]).PHP_EOL;' -- "$new/manifest.json" |
-        sudo tee "$tmp" > /dev/null || { sudo rm -f "$tmp"; _install_status 1 "Unable to write the $name sudo rules"; }
-    sudo chmod 440 "$tmp"
-    if sudo visudo -cqf "$tmp"; then
-        sudo mv -f "$tmp" "$rules" || _install_status 1 "Unable to install the $name sudo rules"
-    else
-        sudo rm -f "$tmp"
-        _install_status 1 "Invalid $name sudo rules"
-    fi
-    sudo mkdir -p "$webroot_dir/app/js/plugins"
-    sudo install -o $raspap_user -g $raspap_user -m 644 "$new/templates/app/js/$js" "$webroot_dir/app/js/plugins/$js" ||
-        _install_status 1 "Unable to install $js"
+    sudo "$raspap_dir/plugins/plugin_helper.sh" install "$name" || _install_status 1 "Unable to install the $name plugin"
     return 0
 }
 
@@ -492,7 +474,7 @@ function _migrate_to_bundled_plugin() {
 # plugin of the hardened fork. The old plugin ran scripts from /tmp as root and
 # flushed all iptables rules. Only when the old plugin is installed.
 function _migrate_firewall_plugin() {
-    _migrate_to_bundled_plugin Firewall 090_Firewall Firewall.js || return 0
+    _migrate_to_bundled_plugin Firewall Firewall || return 0
     # the rules of the old plugin move to the own chains of the helper
     sudo /usr/local/sbin/raspap-firewall.sh apply || _install_status 1 "Unable to apply the firewall rules"
     _install_status 0
@@ -502,7 +484,7 @@ function _migrate_firewall_plugin() {
 # the hardened fork. The old plugin copied /tmp/ntpdata to ntp.conf as root,
 # and its sudo rules had wildcards. Only when the old plugin is installed.
 function _migrate_ntpserver_plugin() {
-    _migrate_to_bundled_plugin NTPServer 090_NTPServer NTPServer.js || return 0
+    _migrate_to_bundled_plugin "NTP Server" NTPServer || return 0
     _install_status 0
 }
 
