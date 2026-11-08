@@ -29,11 +29,30 @@ _get_release() { echo "LOOKUP"; RASPAP_LATEST=x; }
 wget() { :; }
 source() { :; }
 _update_raspap() { echo "UPDATE $branch $UPDATE_URL"; }
+_fetch_part() { echo /dev/null; }
 out=$( (set +u; repo=Acio/raspap-webgui; branch=pi/hardened; update=1; _load_installer) 2>&1 )
 c "--branch: no release lookup, files of that branch" '! echo "$out" | grep -q LOOKUP && echo "$out" | grep -q "UPDATE pi/hardened https://raw.githubusercontent.com/Acio/raspap-webgui/pi/hardened/"'
 out=$( (set +u; repo=Acio/raspap-webgui; branch=""; update=1; _load_installer) 2>&1 )
 c "no --branch: release lookup" 'echo "$out" | grep -q LOOKUP'
-unset -f source wget _update_raspap _get_release
+unset -f source wget _update_raspap _get_release _fetch_part
+
+echo "== raspbian.sh: installer parts in private temporary files"
+eval "$(sed -n '/^function _fetch_part()/,/^}/p' "$S/installers/raspbian.sh")"
+_install_status() { echo "STATUS $*"; [ "$1" = 0 ]; }
+UPDATE_URL="https://raw.githubusercontent.com/Acio/raspap-webgui/x/"
+# a file of another user at the old fixed name
+echo 'echo FROM_TMP_FILE' > /tmp/raspap_common.sh; chown www-data /tmp/raspap_common.sh
+wget() { local o; while [ $# -gt 0 ]; do [ "$1" = -O ] && o="$2"; shift; done; echo 'echo FROM_RELEASE' > "$o"; }
+f=$(_fetch_part common); rc=$?
+c "the part goes to a new private file (rc $rc)" '[ $rc = 0 ] && [ -f "$f" ] && [ "$f" != /tmp/raspap_common.sh ] && [ "$(stat -c %U:%a "$f")" = "root:600" ] && grep -q FROM_RELEASE "$f"'
+out=$(bash -c "source $f")
+c "the downloaded part is loaded, not the file in /tmp" '[ "$out" = FROM_RELEASE ]'
+rm -f "$f"
+wget() { return 8; }
+out=$( (f=$(_fetch_part common) || exit 1; echo "LOADED $f") 2>&1 ); rc=$?
+c "a failed download stops the installer (rc $rc)" '[ $rc != 0 ] && ! echo "$out" | grep -q LOADED && echo "$out" | grep -q "Unable to download common.sh"'
+unset -f wget
+c "raspbian.sh has no fixed /tmp names" '! grep -q "/tmp/raspap_" "$S/installers/raspbian.sh"'
 
 echo "== update of the web root (common.sh, git clone replaced by a copy)"
 set +u  # the installer does not use set -u
@@ -64,12 +83,15 @@ run() {
     local r=$?; [ $r = 0 ] || tail -5 /tmp/upd.log | sed 's/^/    log: /'; return $r
 }
 mkdir -p /tmp/raspap-user-plugins/trap
+mkdir -p /tmp/raspap-webgui/trap
 old 1; run; rc=$?
 b=$(ls -1t /var/backups/raspap-webroot-*.tar.gz 2> /dev/null | head -1)
 c "update ran (rc $rc)" '[ $rc = 0 ]'
 c "backup made, mode 600" '[ -n "$b" ] && [ "$(stat -c %a "$b")" = 600 ]'
 c "backup has the old files and the old config.php" 'tar -tzf "$b" | grep -qx var/www/html/old-marker.txt && tar -xzf "$b" -O var/www/html/includes/config.php | grep -q "RASPI_WIREGUARD_ENABLED., true"'
 c "new web root installed" '[ ! -e "$W/old-marker.txt" ] && [ -f "$W/includes/defaults.php" ]'
+c "the web root and its installers belong to root until the last step" '[ "$(stat -c %U "$W")" = root ] && [ "$(stat -c %U "$W/installers")" = root ] && [ "$(stat -c %U "$W/installers/common.sh")" = root ]'
+c "the clone is in a private directory, not /tmp/raspap-webgui" '[ -d /tmp/raspap-webgui/trap ]'
 c "config.php of the device kept, raspap.auth kept" 'grep -q "RASPI_WIREGUARD_ENABLED., true" "$W/includes/config.php" && [ -f "$raspap_dir/raspap.auth" ]'
 c "update check of the device now uses the fork" 'grep -q "^define(.RASPI_API_ENDPOINT., .https://api.github.com/repos/Acio/raspap-webgui/releases/latest.);" "$W/includes/config.php" && [ "$(grep -c RASPI_API_ENDPOINT "$W/includes/config.php")" = 1 ]'
 c "php -l on the config.php after the update" 'php -l "$W/includes/config.php" > /dev/null'
@@ -88,6 +110,13 @@ c "failed backup: the update stops (rc $rc), the old web root stays" '[ $rc != 0
 rm -f /var/backups; mv /var/backups.ok /var/backups
 unset -f sudo git
 set -u
+
+echo "== order of the install and update steps"
+for f in _install_raspap _update_raspap; do
+    steps=$(sed -n "/^function $f()/,/^}/p" "$S/installers/common.sh" | grep -oE "^    _[a-z_]+" | tr -d " ")
+    c "$f: _change_file_ownership is the last step before _install_complete" '[ "$(echo "$steps" | tail -2 | head -1)" = _change_file_ownership ] && [ "$(echo "$steps" | grep -c _change_file_ownership)" = 1 ]'
+done
+c "no lighttpd config through a fixed /tmp name" '! grep -q "/tmp/50-raspap-router.conf" "$S/installers/common.sh"'
 
 echo "== version check of the web interface"
 cat > /tmp/v.php <<'EOF'

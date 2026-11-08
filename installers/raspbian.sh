@@ -319,6 +319,21 @@ function _update_system_packages() {
     sudo apt-get update || _install_status 1 "Unable to update package list"
 }
 
+# Downloads an installer part of the release to a private temporary file, and
+# prints its name. Before, the parts went to fixed names in /tmp. The update
+# runs as root, and www-data can start it, so a fixed name could be a file of
+# www-data.
+function _fetch_part() {
+    local file
+    file=$(mktemp) || { _install_status 1 "Unable to create a temporary file" >&2; exit 1; }
+    if ! wget -q "${UPDATE_URL}installers/$1.sh" -O "$file" || [ ! -s "$file" ]; then
+        rm -f "$file"
+        _install_status 1 "Unable to download $1.sh" >&2
+        exit 1
+    fi
+    echo "$file"
+}
+
 # Fetch required installer functions
 function _load_installer() {
     # without -b, --branch: the latest release. With a branch, no release is
@@ -334,26 +349,30 @@ function _load_installer() {
     if [ "${install_cert:-}" = 1 ]; then
         source="mkcert"
         component="mkcert"
-        wget -q ${UPDATE_URL}installers/${source}.sh -O /tmp/raspap_${source}.sh
-        source /tmp/raspap_${source}.sh && rm -f /tmp/raspap_${source}.sh
+        part=$(_fetch_part "$source") || exit 1
+        # shellcheck source=/dev/null
+        source "$part" && rm -f "$part"
         _install_certificate || _install_status 1 "Unable to install certificate"
     elif [ "${minwrite}" = 1 ]; then
         source="minwrite"
         component="Minwrite"
-        wget -q ${UPDATE_URL}installers/${source}.sh -O /tmp/raspap_${source}.sh
-        source /tmp/raspap_${source}.sh && rm -f /tmp/raspap_${source}.sh
+        part=$(_fetch_part "$source") || exit 1
+        # shellcheck source=/dev/null
+        source "$part" && rm -f "$part"
         _install_minwrite || _install_status 1 "Unable to execute minimal write install"
     elif [ "${uninstall}" = 1 ]; then
         source="uninstall"
         component="Uninstall"
-        wget -q ${UPDATE_URL}installers/${source}.sh -O /tmp/raspap_${source}.sh
-        source /tmp/raspap_${source}.sh && rm -f /tmp/raspap_${source}.sh
+        part=$(_fetch_part "$source") || exit 1
+        # shellcheck source=/dev/null
+        source "$part" && rm -f "$part"
         _remove_raspap || _install_status 1 "Unable to uninstall RaspAP"
     else
         source="common"
         component="Install"
-        wget -q ${UPDATE_URL}installers/${source}.sh -O /tmp/raspap_${source}.sh
-        source /tmp/raspap_${source}.sh && rm -f /tmp/raspap_${source}.sh
+        part=$(_fetch_part "$source") || exit 1
+        # shellcheck source=/dev/null
+        source "$part" && rm -f "$part"
         if [ "$update" == 1 ]; then
             _update_raspap || _install_status 1 "Unable to update RaspAP"
         else

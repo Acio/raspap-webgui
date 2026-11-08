@@ -134,7 +134,9 @@ c "second run: nothing to do" '[ -z "$out" ]'
 echo "== installer: helpers of the plugins"
 systemctl() { :; }
 rm -f /usr/local/sbin/raspap-firewall.sh
-eval "f() { $(sed -n '/# The root helper of the Firewall plugin, and the files of the Tailscale/,/^    fi$/p' "$S/installers/common.sh") ; }"
+raspap_dir=/etc/raspap
+# from the comment of the plugin helpers to the end of the Tailscale block
+eval "f() { $(awk '/# The root helper of the Firewall plugin, and the files of the Tailscale/ {p = 1} p {print} p && /tailscale-ethtool@.service/ {t = 1} t && /^    fi$/ {exit}' "$S/installers/common.sh") ; }"
 f
 unset -f sudo systemctl
 c "firewall helper, ts-optimize and the tailscale unit installed as root" '[ "$(stat -c %U:%a /usr/local/sbin/raspap-firewall.sh)" = root:755 ] && [ "$(stat -c %U:%a /usr/local/sbin/raspap-ts-optimize.sh)" = root:755 ] && [ "$(stat -c %U:%a /etc/systemd/system/tailscale-ethtool@.service)" = root:644 ]'

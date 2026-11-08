@@ -48,7 +48,6 @@ function _install_raspap() {
     _check_for_old_configs
     _optimize_php
     _download_latest_files
-    _change_file_ownership
     _create_hostapd_scripts
     _install_raspap_hostapd
     _create_plugin_scripts
@@ -60,6 +59,9 @@ function _install_raspap() {
     _prompt_install_features
     _install_extra_features
     _patch_system_files
+    # last: until here, the installer installs root files from the web root,
+    # so www-data must not own it yet
+    _change_file_ownership
     _install_complete
 }
 
@@ -74,7 +76,6 @@ function _update_raspap() {
     _install_dependencies
     _check_for_old_configs
     _download_latest_files
-    _change_file_ownership
     _secure_raspap_directories
     _secure_openvpn_client_files
     _patch_system_files
@@ -85,6 +86,9 @@ function _update_raspap() {
     _enable_network_activity_monitor
     _create_plugin_scripts
     _migrate_firewall_plugin
+    # last: until here, the update installs root files from the web root, so
+    # www-data must not own it yet
+    _change_file_ownership
     _install_complete
 }
 
@@ -505,10 +509,13 @@ function _install_lighttpd_configs() {
     HTROOT=$(echo "$HTROOT" | sed -e 's/\/$//')
 
     # Substitute values
-    awk "{gsub(\"/REPLACE_ME\",\"$HTROOT\")}1" $CONFSRC > /tmp/50-raspap-router.conf
+    local router_conf
+    router_conf=$(mktemp) || _install_status 1 "Unable to create a temporary file"
+    awk "{gsub(\"/REPLACE_ME\",\"$HTROOT\")}1" $CONFSRC > "$router_conf"
 
     # Copy into place
-    sudo cp /tmp/50-raspap-router.conf /etc/lighttpd/conf-available/ || _install_status 1 "Unable to copy lighttpd config file into place."
+    sudo install -o root -g root -m 644 "$router_conf" /etc/lighttpd/conf-available/50-raspap-router.conf || _install_status 1 "Unable to copy lighttpd config file into place."
+    rm -f "$router_conf"
 
     # Link into conf-enabled
     echo "Creating link to /etc/lighttpd/conf-enabled"
@@ -1049,11 +1056,8 @@ function _restore_plugin_javascript() {
 # Fetches latest files from github to webroot
 function _download_latest_files() {
     _install_log "Cloning latest files from GitHub"
-    source_dir="/tmp/raspap-webgui"
-    if [ -d "$source_dir" ]; then
-        echo "Temporary download destination $source_dir exists. Removing..."
-        rm -rf "$source_dir"
-    fi
+    # a private directory, not a fixed name in /tmp
+    source_dir=$(mktemp -d) || _install_status 1 "Unable to create a temporary directory"
     git clone --branch $branch --depth 1 --recurse-submodules -c advice.detachedHead=false $git_source_url $source_dir || clone=false
     # the plugins submodule stays at the commit of the release (no --remote).
     # The plugin list of the hardened fork is config/plugins.json.
@@ -1070,6 +1074,12 @@ function _download_latest_files() {
         # A copy of the current web root, to restore it by hand when the update
         # fails. Keeps the 3 newest copies.
         _backup_webroot
+
+        # The update installs root files from the new web root. Until the last
+        # step, the web root belongs to root, so www-data can not change or
+        # replace these files in the meantime.
+        sudo chown root:root "$webroot_dir" && sudo chmod 755 "$webroot_dir" ||
+            _install_status 1 "Unable to change the owner of $webroot_dir"
 
         # Keep the installed plugins in a private temporary directory: the
         # plugin directories and the symlinks of the bundled plugins
