@@ -235,7 +235,7 @@ class Tailscale implements PluginInterface
             if (!file_exists($this->binPath)) {
                 $installPage = 'https://tailscale.com/kb/1174/install-debian-bookworm';
                 $status->addMessage(sprintf(_('Expected tailscale binary not found at: %s'), $this->binPath), 'warning');
-                $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> or reinstall the Tailscale plugin.'), $installPage), 'warning');
+                $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> or reinstall the Tailscale plugin.'), htmlspecialchars($installPage, ENT_QUOTES)), 'warning', true, true);
             } else {
                 $hostname = $this->hostname;
                 $state = $this->getLoginStatus($hostname);

@@ -175,6 +175,6 @@ function addSkippedNetworkMessages($status, array $skipped)
     foreach ($skipped as $ssid) {
         // the network does not work until the user enters the passphrase, so
         // the warning stays until the user closes it
-        $status->addMessage(sprintf(_('%s has no passphrase that NetworkManager can use. Enter the passphrase and click Update.'), htmlspecialchars(evalHexSequence($ssid), ENT_QUOTES)), 'warning alert-persistent');
+        $status->addMessage(sprintf(_('%s has no passphrase that NetworkManager can use. Enter the passphrase and click Update.'), evalHexSequence($ssid)), 'warning alert-persistent');
     }
 }

@@ -237,7 +237,7 @@ class NTPServer implements PluginInterface
         } else {
             foreach (explode("\n", $error) as $line) {
                 if ($line !== '') {
-                    $status->addMessage(htmlspecialchars($line, ENT_QUOTES), 'danger');
+                    $status->addMessage($line, 'danger');
                 }
             }
         }

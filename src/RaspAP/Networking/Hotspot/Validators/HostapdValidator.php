@@ -109,7 +109,7 @@ class HostapdValidator
 
         // validate interface
         if (!in_array($post['interface'], $interfaces, true)) {
-            $status->addMessage('Unknown interface '.htmlspecialchars($post['interface'], ENT_QUOTES), 'danger');
+            $status->addMessage('Unknown interface '.$post['interface'], 'danger');
             $goodInput = false;
         }
 

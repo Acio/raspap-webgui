@@ -148,4 +148,15 @@ done
 c "the DHCP page escapes the upstream servers and the lease time" 'grep -q "value=\"<?php echo htmlspecialchars((string)\$server, ENT_QUOTES); ?>\"" "$S/templates/dhcp/advanced.php" && grep -q "htmlspecialchars(\$data\[.leaseTime.\]" "$S/templates/dhcp/summary.php"'
 c "dhcp.php does not save dnsmasq after a failed dhcpcd check" 'awk "/function saveDHCPConfig/,/^}/" "$S/includes/dhcp.php" | grep -q "return false;"'
 
+
+echo "== status messages (StatusMessage::addMessage)"
+out=$(cd "$W" && php -r 'require "includes/autoload.php"; $s = new RaspAP\Messages\StatusMessage;
+    $s->addMessage("<b>x</b> & \"q\""); $s->addMessage("<a href=\"/x\">link</a>", "warning", true, true);
+    $s->addMessage("y", "warning alert-persistent"); $s->addMessage("z", "danger\" onclick=\"x"); echo implode("\n", $s->messages);' 2>&1)
+c "text is escaped by default" 'echo "$out" | grep -q "&lt;b&gt;x&lt;/b&gt; &amp; &quot;q&quot;" && ! echo "$out" | grep -q "<b>x"'
+c "HTML only with html=true" 'echo "$out" | grep -q "<a href=\"/x\">link</a>"'
+c "the level keeps class names and loses quotes" 'echo "$out" | grep -q "alert-warning alert-persistent alert-dismissible" && echo "$out" | grep -q "alert-danger onclickx alert-dismissible"'
+c "no caller escapes a message itself (it would show twice escaped)" '[ -z "$(cd "$S" && grep -rn --include="*.php" --exclude-dir=tests --exclude-dir=vendor "addMessage(" . | grep htmlspecialchars | grep -v ", true, true)")" ]'
+c "HTML messages escape their values" '[ -z "$(cd "$S" && grep -rn --include="*.php" --exclude-dir=tests --exclude-dir=vendor "addMessage(" . | grep ", true, true)" | grep -v htmlspecialchars)" ]'
+
 finish

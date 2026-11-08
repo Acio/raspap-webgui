@@ -103,7 +103,7 @@ class Firewall implements PluginInterface
                             if (preg_match('/^[A-Za-z0-9_.-]{1,15}\+?$/', $dev)) {
                                 $devices[] = $dev;
                             } else {
-                                $status->addMessage(sprintf(_('Exclude device %s failed - not a valid interface name'), htmlspecialchars($dev, ENT_QUOTES)), 'warning');
+                                $status->addMessage(sprintf(_('Exclude device %s failed - not a valid interface name'), $dev), 'warning');
                             }
                         }
                         $excl = implode(' ', $devices);
@@ -122,7 +122,7 @@ class Firewall implements PluginInterface
                                 // the firewall rules for addresses are IPv4 only
                                 if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ) { $str_excl .= "$ip ";
                                 } else {
-                                    $status->addMessage(sprintf(_('Exclude IP address %s failed - not a valid IPv4 address'), htmlspecialchars($ip, ENT_QUOTES)), 'warning');
+                                    $status->addMessage(sprintf(_('Exclude IP address %s failed - not a valid IPv4 address'), $ip), 'warning');
                                 }
                             }
                         }
@@ -138,7 +138,7 @@ class Firewall implements PluginInterface
                     }
                     foreach ($output as $line) {
                         if (strpos($line, 'Ignored') === 0) {
-                            $status->addMessage(htmlspecialchars($line, ENT_QUOTES), 'warning');
+                            $status->addMessage($line, 'warning');
                         }
                     }
                 }

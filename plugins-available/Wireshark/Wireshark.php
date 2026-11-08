@@ -170,7 +170,7 @@ class Wireshark implements PluginInterface
             if (!file_exists($this->binPath)) {
                 $installPage = 'https://tshark.dev/setup/install/';
                 $status->addMessage(sprintf(_('Expected tshark binary not found at: %s'), $this->binPath), 'warning');
-                $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> or reinstall the Wireshark plugin.'), $installPage), 'warning');
+                $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> or reinstall the Wireshark plugin.'), htmlspecialchars($installPage, ENT_QUOTES)), 'warning', true, true);
             } else {
                 $hostname = $this->hostname;
             }

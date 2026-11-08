@@ -75,7 +75,7 @@ function DisplayProviderConfig()
         $providerVersion = 'not found';
     } elseif (!file_exists($binPath)) {
         $status->addMessage(sprintf(_('Expected %s binary not found at: %s'), $providerName, $binPath), 'warning');
-        $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> for %s\'s Linux CLI.'), $installPage, $providerName), 'warning');
+        $status->addMessage(sprintf(_('Visit the <a href="%s" target="_blank">installation instructions</a> for %s\'s Linux CLI.'), htmlspecialchars($installPage, ENT_QUOTES), htmlspecialchars($providerName, ENT_QUOTES)), 'warning', true, true);
         $ctlState = 'disabled';
         $providerVersion = 'not found';
     } elseif (empty($providerVersion)) {
