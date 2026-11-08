@@ -54,6 +54,7 @@ function _install_raspap() {
     _create_plugin_scripts
     _create_lighttpd_scripts
     _install_lighttpd_configs
+    _install_lighttpd_hardening
     _default_configuration
     _configure_networking
     _prompt_configure_tcp_bbr
@@ -89,6 +90,7 @@ function _update_raspap() {
     _create_plugin_scripts
     _migrate_firewall_plugin
     _migrate_ntpserver_plugin
+    _install_lighttpd_hardening
     # last: until here, the update installs root files from the web root, so
     # www-data must not own it yet
     _change_file_ownership
@@ -565,6 +567,25 @@ function _install_lighttpd_configs() {
     echo "Linking 50-raspap-router.conf to /etc/lighttpd/conf-enabled/"
     sudo ln -s "/etc/lighttpd/conf-available/50-raspap-router.conf" "/etc/lighttpd/conf-enabled/50-raspap-router.conf" || _install_status 1 "Unable to symlink lighttpd config file (this is normal if the link already exists)."
     sudo systemctl restart lighttpd.service || _install_status 1 "Unable to restart lighttpd"
+    _install_status 0
+}
+
+# Hardened fork: installs config/51-raspap-hardened.conf (no lighttpd version
+# in the Server header). lighttpd checks the configuration first. When it
+# refuses the file, the file is not enabled and the old configuration stays.
+function _install_lighttpd_hardening() {
+    local name=51-raspap-hardened.conf
+    _install_log "Installing the lighttpd settings of the hardened fork ($name)"
+    sudo install -o root -g root -m 644 "$webroot_dir/config/$name" "/etc/lighttpd/conf-available/$name" ||
+        { _install_status 2 "Unable to install $name"; return 0; }
+    sudo ln -sfn "../conf-available/$name" "/etc/lighttpd/conf-enabled/$name" ||
+        { _install_status 2 "Unable to enable $name"; return 0; }
+    if ! sudo lighttpd -tt -f /etc/lighttpd/lighttpd.conf > /dev/null 2>&1; then
+        sudo rm -f "/etc/lighttpd/conf-enabled/$name"
+        _install_status 2 "lighttpd refused $name. The old configuration stays."
+        return 0
+    fi
+    sudo systemctl try-reload-or-restart lighttpd.service || _install_status 2 "Unable to reload lighttpd"
     _install_status 0
 }
 

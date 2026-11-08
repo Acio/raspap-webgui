@@ -89,7 +89,7 @@ get() { curl -s -D /tmp/h.txt -o /tmp/b.txt -b "PHPSESSID=$1" "http://127.0.0.1:
 hdr() { grep -qi "^$1" /tmp/h.txt; }
 
 sess act1 10 admin; get act1 fork_page.php
-c "a page: X-Frame-Options, CSP, nosniff, Referrer-Policy, no-store" 'grep -qx "page ok" /tmp/b.txt && hdr "X-Frame-Options: DENY" && hdr "Content-Security-Policy: frame-ancestors '"'"'none'"'"'; base-uri '"'"'self'"'"'; object-src '"'"'none'"'"'; form-action '"'"'self'"'"'" && hdr "X-Content-Type-Options: nosniff" && hdr "Referrer-Policy: same-origin" && hdr "Cache-Control: no-store"'
+c "a page: X-Frame-Options, CSP, nosniff, Referrer-Policy, no-store" 'grep -qx "page ok" /tmp/b.txt && hdr "X-Frame-Options: DENY" && hdr "Content-Security-Policy: frame-ancestors '"'"'none'"'"'; base-uri '"'"'self'"'"'; object-src '"'"'none'"'"'; form-action '"'"'self'"'"'" && hdr "X-Content-Type-Options: nosniff" && hdr "Referrer-Policy: same-origin" && hdr "Cache-Control: no-store" && hdr "Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()"'
 get act1 ajax/session/do_check_session.php
 c "an ajax answer has the same headers" 'grep -q "\"status\":\"active\"" /tmp/b.txt && hdr "X-Frame-Options: DENY" && hdr "Cache-Control: no-store"'
 c "all ajax files include session.php" '[ -z "$(grep -rL "includes/session.php" "$S/ajax" --include=*.php)" ]'

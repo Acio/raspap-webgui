@@ -118,6 +118,19 @@ rm -rf /var/log/raspap; ln -s /etc /var/log/raspap
 c "a symlink as the log directory is refused (rc $rc)" '[ $rc != 0 ] && [ "$(stat -c %U /etc)" = root ]'
 rm -f /var/log/raspap
 
+echo "== lighttpd settings of the fork (51-raspap-hardened.conf)"
+eval "$(sed -n '/^function _install_lighttpd_hardening()/,/^}/p' "$S/installers/common.sh")"
+mkdir -p /etc/lighttpd/conf-available /etc/lighttpd/conf-enabled /tmp/lt; touch /etc/lighttpd/lighttpd.conf
+printf '#!/bin/sh\necho "lighttpd $*" >> /tmp/lt/calls; exit ${LT_RC:-0}\n' > /usr/local/sbin/lighttpd; chmod 755 /usr/local/sbin/lighttpd
+printf '#!/bin/sh\necho "systemctl $*" >> /tmp/lt/calls\n' > /usr/local/sbin/systemctl; chmod 755 /usr/local/sbin/systemctl
+( sudo() { "$@"; }; _install_status() { echo "STATUS $*"; }; webroot_dir=$S; _install_lighttpd_hardening ) > /dev/null 2>&1
+c "installed, enabled after lighttpd -tt, then a reload" '[ "$(stat -c %U:%a /etc/lighttpd/conf-available/51-raspap-hardened.conf)" = root:644 ] && [ "$(readlink /etc/lighttpd/conf-enabled/51-raspap-hardened.conf)" = ../conf-available/51-raspap-hardened.conf ] && grep -q "lighttpd -tt" /tmp/lt/calls && grep -q "try-reload-or-restart lighttpd" /tmp/lt/calls'
+rm -f /etc/lighttpd/conf-enabled/51-raspap-hardened.conf; : > /tmp/lt/calls
+( export LT_RC=1; sudo() { "$@"; }; _install_status() { echo "STATUS $*"; }; webroot_dir=$S; _install_lighttpd_hardening ) > /tmp/lt/out 2>&1; rc=$?
+c "refused by lighttpd: not enabled, no reload, the update goes on (rc $rc)" '[ $rc = 0 ] && [ ! -e /etc/lighttpd/conf-enabled/51-raspap-hardened.conf ] && ! grep -q reload /tmp/lt/calls && grep -q "old configuration stays" /tmp/lt/out'
+rm -f /usr/local/sbin/lighttpd /usr/local/sbin/systemctl
+c "the file hides the version in the Server header, install and update call the function" 'grep -qx "server.tag = \"\"" "$S/config/51-raspap-hardened.conf" && [ "$(grep -c "^    _install_lighttpd_hardening$" "$S/installers/common.sh")" = 2 ]'
+
 echo "== the update replaces the running raspbian.sh with a new file"
 mkdir -p /etc/raspap/system /tmp/wr/installers
 # the old loader sleeps, then bash reads its next line from the same offset
