@@ -16,6 +16,8 @@ c "visudo accepts raspap.sudoers" 'visudo -cqf "$S/installers/raspap.sudoers"'
 c "reboot without arguments allowed, with an argument refused" 'al /sbin/reboot && ! al /sbin/reboot --force'
 c "rules without a caller removed: ifup, netplan, hilink, start of the activity monitor" '! al /sbin/ifup wlan0 && ! al /usr/sbin/netplan apply && ! al /usr/local/sbin/onoff_huawei_hilink.sh -c 1 && ! al /bin/systemctl start raspap-network-activity@wlan0.service'
 c "stop of the activity monitor (hostapd.php) allowed" 'al /bin/systemctl stop "raspap-network-activity@*.service"'
+c "the stop rule takes only the literal pattern, no other services" '! al /bin/systemctl stop "raspap-network-activity@a.service" ssh.service x.service && ! al /bin/systemctl stop raspap-network-activity@wlan0.service'
+c "no sudo rule for visudo (it prints lines of any file)" '! al /usr/sbin/visudo -cf /etc/shadow && ! grep -q visudo "$S/installers/raspap.sudoers" && ! grep -q "sudo visudo" "$S/src/RaspAP/Plugins/PluginInstaller.php"'
 c "dual mode: the hostapd file of an interface through the helper" 'al /usr/local/sbin/raspap-config-file.sh install hostapd wlan1'
 c "wpa_cli reassociate and disconnect without an id through the helper" 'al /usr/local/sbin/raspap-wifi.sh wpa wlan0 reassociate && al /usr/local/sbin/raspap-wifi.sh wpa wlan0 disconnect'
 

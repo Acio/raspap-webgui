@@ -296,16 +296,13 @@ class PluginInstaller
             throw new \Exception('Failed to update sudoers file.');
         }
 
-        $cmd = sprintf('sudo visudo -cf %s', escapeshellarg($tmpSudoers));
-        $return = shell_exec($cmd);
-        if (strpos(strtolower($return), 'parsed ok') !== false) {
-            $cmd = sprintf('sudo %s sudoers %s', escapeshellarg($this->helperScriptPath), escapeshellarg($tmpSudoers));
-            $return = shell_exec($cmd);
-            if (strpos(strtolower($return), 'ok') === false) {
-                throw new \Exception('Plugin helper failed to install sudoers.');
-            }
-        } else {
-            throw new \Exception('Sudoers check failed.');
+        // hardened fork: plugin_helper.sh checks the rules with visudo on its
+        // own copy. www-data has no sudo rule for visudo: visudo prints the
+        // line with a syntax error, also of a file that only root can read.
+        $cmd = sprintf('sudo %s sudoers %s', escapeshellarg($this->helperScriptPath), escapeshellarg($tmpSudoers));
+        $return = (string)shell_exec($cmd);
+        if (strpos(strtolower($return), 'ok') === false) {
+            throw new \Exception('Plugin helper failed to install sudoers.');
         }
     }
 
