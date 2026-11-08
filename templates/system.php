@@ -50,7 +50,7 @@
       <div class="modal-title" id="ModalLabel"><i class="fas fa-history me-2"></i><?php echo _("System reset"); ?></div>
       </div>
       <div class="modal-body">
-        <div class="col-md-12 mb-3 mt-1" data-message="<?php echo _("Reset complete. Restart the hotspot for the changes to take effect."); ?>" id="system-reset-message"><?php echo _("Reset RaspAP to its initial configuration? This action cannot be undone."); ?></div>
+        <div class="col-md-12 mb-3 mt-1" data-message="<?php echo _("Reset complete. Restart the hotspot for the changes to take effect."); ?>" id="system-reset-message"><?php echo _("Reset the hotspot interface to its default hotspot settings? The other interfaces keep their settings. The reset saves the current files in /etc/raspap/backups."); ?></div>
       </div>
       <div class="modal-footer">
       <button type="button" id="js-system-reset-cancel" data-message="<?php echo _("Close"); ?>" class="btn btn-outline-secondary" data-bs-dismiss="modal"><?php echo _("Cancel"); ?></button>

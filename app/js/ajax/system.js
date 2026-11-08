@@ -72,11 +72,12 @@ export function initSystem_ajax() {
         $('#system-reset-message').html(progressHtml);
         $.post('ajax/networking/do_sys_reset.php?',{'csrf_token':csrfToken},function(data){
             setTimeout(function(){
-                jsonData = JSON.parse(data);
+                var jsonData = JSON.parse(data);
+                // hardened fork: the message of the server, as text
                 if(jsonData['return'] == 0) {
-                    $('#system-reset-message').text(successHtml);
+                    $('#system-reset-message').text(successHtml + ' ' + (jsonData['message'] || ''));
                 } else {
-                    $('#system-reset-message').text('Error occured: '+ jsonData['return']);
+                    $('#system-reset-message').text('Error: ' + (jsonData['message'] || jsonData['return']));
                 }
                 $("#js-system-reset-confirm").hide();
                 $("#js-system-reset-cancel").text(closeHtml);

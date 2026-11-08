@@ -179,4 +179,58 @@ echo "== PHP 8.2+ deprecations in the error page"
 out=$(cd "$W" && php -d error_reporting=E_ALL -d display_errors=stderr -r 'require "includes/autoload.php"; new RaspAP\Exceptions\HtmlErrorRenderer(); echo "ok";' 2>&1)
 c "HtmlErrorRenderer has no dynamic properties" '[ "$out" = ok ]'
 
+
+echo "== reset of the hotspot (HotspotReset, do_sys_reset.php)"
+FX="$S/tests/fork/fixtures"
+hr() { local code="$1"; shift; (cd "$W" && php -r 'require "includes/autoload.php"; use RaspAP\Networking\Hotspot\HotspotReset as R; $d = json_decode(file_get_contents("config/defaults.json"), true);'"$code" -- "$@" 2>&1); }
+c "the hotspot interface comes from hostapd.ini, else wlan0" '[ "$(hr "echo R::apInterface([\"WifiInterface\" => \"wlan1\"]), R::apInterface([\"WifiInterface\" => \"wl;an\"]), R::apInterface(false);")" = wlan1wlan0wlan0 ]'
+out=$(hr 'echo R::hostapd(file_get_contents("config/hostapd.conf"), "wlan1", "interface=wlan1\ncountry_code=NL\n");')
+c "hostapd.conf: the hotspot interface, the country code stays, the rest is default" 'echo "$out" | grep -qx interface=wlan1 && echo "$out" | grep -qx country_code=NL && echo "$out" | grep -qx ssid=RaspAP && ! echo "$out" | grep -qx interface=wlan0'
+out=$(hr 'echo R::hostapd(file_get_contents("config/hostapd.conf"), "wlan1", "country_code=;x\n");')
+c "hostapd.conf: an invalid country code gives the default" 'echo "$out" | grep -qx country_code=GB'
+out=$(hr '$n = R::defaults($d, "wlan1"); echo R::dhcpcd(file_get_contents($argv[1]), file_get_contents("config/dhcpcd.conf"), "wlan1", $n["dhcp"]);' "$FX/dhcpcd.conf-pi")
+c "dhcpcd.conf: the wlan0 uplink blocks stay, the wlan1 block once, with its defaults" '[ "$(echo "$out" | grep -c "^interface wlan0")" = 2 ] && [ "$(echo "$out" | grep -c "^interface wlan1")" = 1 ] && echo "$out" | grep -qx "static ip_address=10.9.141.1/24" && echo "$out" | grep -qx "hostname" && [ "$(echo "$out" | grep -c "^nogateway")" = 3 ]'
+out=$(hr '$n = R::defaults($d, "wlan1"); echo R::dhcpcd(null, file_get_contents("config/dhcpcd.conf"), "wlan1", $n["dhcp"]);')
+c "dhcpcd.conf without a current file: the default global part and the wlan1 block, no wlan0 block" '! echo "$out" | grep -q "^interface wlan0" && echo "$out" | grep -qx "interface wlan1" && echo "$out" | grep -qx "clientid"'
+out=$(hr '$n = R::defaults($d, "wlan1"); echo R::dnsmasq(file_get_contents("config/090_wlan0.conf"), "wlan1", $n["range"]);')
+c "dnsmasq: interface wlan1 with its range" 'echo "$out" | grep -qx interface=wlan1 && echo "$out" | grep -qx "dhcp-range=10.9.141.50,10.9.141.254,255.255.255.0,12h" && ! echo "$out" | grep -q wlan0'
+c "an interface without defaults gets the defaults of wlan0" '[ "$(hr "\$n = R::defaults(\$d, \"wlx001122\"); echo \$n[\"dhcp\"][\"static ip_address\"], \" \", \$n[\"range\"];")" = "10.3.141.1 10.3.141.50,10.3.141.254,255.255.255.0,12h" ]'
+
+# end to end: the config file helper as root, the endpoint as www-data
+install -o root -g root -m 755 "$S/installers/config-file.sh" /usr/local/sbin/raspap-config-file.sh
+mkdir -p /etc/raspap/networking /etc/raspap/backups /etc/dnsmasq.d /etc/hostapd
+chown www-data /etc/raspap/backups
+cp "$W/config/defaults.json" /etc/raspap/networking/defaults.json
+printf 'WifiInterface = wlan1\n' > /etc/raspap/hostapd.ini
+printf 'interface=wlan1\nssid=Mine\nwpa_passphrase=mysecret123\nchannel=149\nhw_mode=a\ncountry_code=NL\n' > /etc/hostapd/hostapd.conf
+cp "$FX/dhcpcd.conf-pi" /etc/dhcpcd.conf
+printf 'interface=wlan1\ndhcp-range=10.9.141.60,10.9.141.70,255.255.255.0,1h\n' > /etc/dnsmasq.d/090_wlan1.conf
+printf 'log-facility=/var/log/dnsmasq.log\nconf-dir=/etc/dnsmasq.d\nlog-queries\n' > /etc/dnsmasq.d/090_raspap.conf
+printf 'interface=wlan0\n' > /etc/dnsmasq.d/090_eth0.conf
+for f in /etc/hostapd/hostapd.conf /etc/dhcpcd.conf /etc/dnsmasq.d/090_wlan1.conf /etc/dnsmasq.d/090_raspap.conf /etc/dnsmasq.d/090_eth0.conf; do cp $f /tmp/ref.$(basename $f); done
+TOK=$(printf 'b%.0s' $(seq 64))
+printf 'user_id|s:5:"admin";user_role|s:5:"admin";lastActivity|i:%d;loginTime|i:%d;csrf_token|s:64:"%s";' "$(date +%s)" "$(date +%s)" "$TOK" > $SD/sess_resettest
+chown www-data $SD/sess_resettest; chmod 600 $SD/sess_resettest
+sudo -u www-data php -d session.save_path=$SD -S 127.0.0.1:8097 -t "$W" > /tmp/phpreset.log 2>&1 &
+PHPR=$!
+for i in $(seq 50); do curl -s -o /dev/null http://127.0.0.1:8097/ && break; sleep 0.1; done
+R=http://127.0.0.1:8097/ajax/networking/do_sys_reset.php
+cp "$S/installers/config-file.sh" /tmp/cf.real
+printf '#!/bin/bash\n[ "$2 $3" = "dnsmasq raspap" ] && { echo "refused for the test" >&2; exit 1; }\nexec /tmp/cf.real "$@"\n' > /usr/local/sbin/raspap-config-file.sh
+out=$(curl -s -b PHPSESSID=resettest -d csrf_token=$TOK "$R")
+c "a failed step: an error, and all files are the old files again" 'echo "$out" | grep -q "\"return\":1" && echo "$out" | grep -q "old configuration stays" && for f in hostapd.conf dhcpcd.conf 090_wlan1.conf 090_raspap.conf; do d=/etc/dnsmasq.d/$f; [ $f = hostapd.conf ] && d=/etc/hostapd/$f; [ $f = dhcpcd.conf ] && d=/etc/$f; cmp -s $d /tmp/ref.$f || exit 1; done'
+install -o root -g root -m 755 "$S/installers/config-file.sh" /usr/local/sbin/raspap-config-file.sh
+out=$(curl -s -b PHPSESSID=resettest -d csrf_token=$TOK "$R")
+c "reset: done for wlan1" 'echo "$out" | grep -q "\"return\":0" && echo "$out" | grep -q "on wlan1"'
+c "reset: hostapd.conf default on wlan1, country NL stays, own SSID and passphrase gone" 'grep -qx interface=wlan1 /etc/hostapd/hostapd.conf && grep -qx country_code=NL /etc/hostapd/hostapd.conf && grep -qx ssid=RaspAP /etc/hostapd/hostapd.conf && ! grep -q mysecret123 /etc/hostapd/hostapd.conf'
+c "reset: dhcpcd.conf keeps the wlan0 uplink blocks, wlan1 gets its defaults" '[ "$(grep -c "^interface wlan0" /etc/dhcpcd.conf)" = 2 ] && [ "$(grep -c "^interface wlan1" /etc/dhcpcd.conf)" = 1 ] && grep -qx "static ip_address=10.9.141.1/24" /etc/dhcpcd.conf'
+c "reset: dnsmasq of wlan1 default, 090_raspap default, other dnsmasq files stay, no 090_wlan0" 'grep -qx "dhcp-range=10.9.141.50,10.9.141.254,255.255.255.0,12h" /etc/dnsmasq.d/090_wlan1.conf && ! grep -q log-queries /etc/dnsmasq.d/090_raspap.conf && cmp -s /etc/dnsmasq.d/090_eth0.conf /tmp/ref.090_eth0.conf && [ ! -e /etc/dnsmasq.d/090_wlan0.conf ]'
+b=$(ls -d /etc/raspap/backups/reset-* | tail -1)
+c "reset: the old files are saved, directory 700, files 600, also the old passphrase" '[ "$(stat -c %U:%a "$b")" = www-data:700 ] && [ -z "$(find "$b" -type f ! -perm 600)" ] && cmp -s "$b/hostapd.conf" /tmp/ref.hostapd.conf && cmp -s "$b/dhcpcd.conf" /tmp/ref.dhcpcd.conf'
+n=0; for i in 1 2 3; do curl -s -b PHPSESSID=resettest -d csrf_token=$TOK "$R" | grep -q "\"return\":0" && n=$((n + 1)); done
+c "three resets in the same second: each one works" '[ $n = 3 ]'
+c "reset: only the 3 newest saves stay" '[ "$(ls -d /etc/raspap/backups/reset-* | wc -l)" = 3 ]'
+c "reset: GET is refused, and no login gives no reset" '[ "$(curl -s -o /dev/null -w %{http_code} -b PHPSESSID=resettest "$R")" != 200 ] && ! curl -s -d csrf_token=x "$R" | grep -q "\"return\":0"'
+kill $PHPR 2>/dev/null
+
 finish
