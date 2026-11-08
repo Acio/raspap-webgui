@@ -100,6 +100,8 @@ sess idle2 2000 admin; get idle2 ajax/session/do_check_session.php
 c "an idle session: ajax gets 401 session_expired, the session ends" 'grep -q "^HTTP/1.1 401" /tmp/h.txt && grep -q "\"status\":\"session_expired\"" /tmp/b.txt && [ ! -s $SD/sess_idle2 ]'
 sess act2 1300 admin; get act2 fork_page.php
 c "a session below RASPI_SESSION_TIMEOUT stays" 'grep -qx "page ok" /tmp/b.txt'
+curl -s -D /tmp/h.txt -o /dev/null -b "PHPSESSID=chosenbyanother0000000000000001" "http://127.0.0.1:8099/fork_page.php"
+c "strict mode: an unknown session id is not used, PHP makes a new one" 'grep -qi "^Set-Cookie: PHPSESSID=" /tmp/h.txt && ! grep -qi "^Set-Cookie: PHPSESSID=chosenbyanother" /tmp/h.txt && [ ! -e $SD/sess_chosenbyanother0000000000000001 ]'
 c "session.js shows the expired window on 401" 'grep -q "jqXHR.status === 401" "$S/app/js/ajax/session.js"'
 
 get none fork_page.php?early=1
