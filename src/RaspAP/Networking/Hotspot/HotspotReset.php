@@ -58,26 +58,21 @@ class HotspotReset
      * @param string $iface
      * @return string
      */
-    public static function removeBlock(string $conf, string $iface): string
+    private static function removeBlock(string $conf, string $iface): string
     {
         $out = [];
         $skip = false;
-        $lines = preg_split('/\R/', $conf);
-        foreach ($lines as $i => $line) {
-            $header = preg_match('/^#\s*RaspAP\s+(\S+)\s+configuration/', $line, $h);
-            $start = preg_match('/^\s*(interface|ssid)\s+(\S+)/', $line, $s);
-            if ($header || $start) {
-                $name = $header ? $h[1] : ($s[1] === 'interface' ? $s[2] : null);
-                // a header line belongs to the interface line that follows it
-                if ($start || !$skip || $name !== $iface) {
-                    $skip = ($name === $iface);
-                }
+        foreach (preg_split('/\R/', $conf) as $line) {
+            if (preg_match('/^#\s*RaspAP\s+(\S+)\s+configuration/', $line, $m)) {
+                $skip = ($m[1] === $iface);
+            } elseif (preg_match('/^\s*(interface|ssid)\s+(\S+)/', $line, $m)) {
+                $skip = ($m[1] === 'interface' && $m[2] === $iface);
             }
             if (!$skip) {
                 $out[] = $line;
             }
         }
-        return rtrim(implode("\n", $out)) . "\n";
+        return implode("\n", $out);
     }
 
     /**
@@ -136,6 +131,40 @@ class HotspotReset
         }
         $range = (string)($defaults['dnsmasq'][$iface]['dhcp-range'][0] ?? $defaults['dnsmasq']['wlan0']['dhcp-range'][0] ?? '');
         return ['dhcp' => $dhcp, 'range' => $range];
+    }
+
+    /**
+     * Saves the current files in a new directory below $dir (mode 700, files
+     * mode 600, for example the WiFi passphrase). Only the $keep newest
+     * reset-* directories stay.
+     *
+     * @param string $dir for example /etc/raspap/backups
+     * @param array $files name => content; null for a file that does not exist
+     * @param int $keep
+     * @return string|null the new directory, or null when the save failed
+     */
+    public static function saveBackup(string $dir, array $files, int $keep = 3): ?string
+    {
+        // a random part, so two resets in the same second do not use the same directory
+        $backup = $dir . '/reset-' . date('Ymd-His') . '-' . bin2hex(random_bytes(3));
+        $umask = umask(0077);
+        $saved = @mkdir($backup, 0700);
+        foreach ($files as $name => $content) {
+            if ($saved && $content !== null) {
+                $saved = file_put_contents($backup . '/' . $name, $content) !== false;
+            }
+        }
+        umask($umask);
+        if (!$saved) {
+            return null;
+        }
+        $old = glob($dir . '/reset-*', GLOB_ONLYDIR) ?: [];
+        rsort($old);
+        foreach (array_slice($old, $keep) as $remove) {
+            array_map('unlink', glob($remove . '/*') ?: []);
+            @rmdir($remove);
+        }
+        return $backup;
     }
 
     /**

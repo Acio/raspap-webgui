@@ -53,6 +53,34 @@ class ConfigFile
         return self::run(['remove', $kind, $name], null) === 0;
     }
 
+    /**
+     * Hardened fork: installs several configuration files as one change.
+     * When a file fails, the files before it get their old content again (a
+     * dnsmasq file that did not exist is removed), so the old state stays.
+     *
+     * @param array $files each [kind, name, new content, old content or null]
+     * @return bool true on success. On failure, $lastError has the reason.
+     */
+    public static function installAll(array $files): bool
+    {
+        foreach (array_values($files) as $i => [$kind, $name, $content]) {
+            if (self::install($kind, $name, $content)) {
+                continue;
+            }
+            $error = self::$lastError;
+            foreach (array_reverse(array_slice($files, 0, $i)) as [$k, $n, , $old]) {
+                if ($old !== null) {
+                    self::install($k, $n, $old);
+                } elseif ($k === 'dnsmasq') {
+                    self::remove($k, (string)$n);
+                }
+            }
+            self::$lastError = $error;
+            return false;
+        }
+        return true;
+    }
+
     private static function run(array $args, ?string $stdin): int
     {
         self::$lastError = '';

@@ -15,8 +15,8 @@ use RaspAP\System\ConfigFile;
 // Hardened fork: the reset installs the default hotspot configuration for
 // the hotspot interface of the device (WifiInterface of hostapd.ini), not
 // for wlan0. The other interfaces (for example the uplink) keep their
-// dhcpcd blocks and dnsmasq files. The current files are saved first, and a
-// failed step puts back the files of the earlier steps.
+// dhcpcd blocks and dnsmasq files. HotspotReset saves the current files
+// first, and ConfigFile::installAll puts the old files back when a step fails.
 
 function resetResult(int $return, string $message): void
 {
@@ -36,56 +36,26 @@ $read = function (string $file): ?string {
     $content = @file_get_contents($file);
     return $content === false ? null : $content;
 };
+$template = fn(string $file): string => (string)file_get_contents($path . '/' . $file);
 $current = [
-    'hostapd' => $read(RASPI_HOSTAPD_CONFIG),
-    'dhcpcd' => $read(RASPI_DHCPCD_CONFIG),
-    'dnsmasq-iface' => $read(RASPI_DNSMASQ_PREFIX . $iface . '.conf'),
-    'dnsmasq-raspap' => $read(RASPI_DNSMASQ_PREFIX . 'raspap.conf'),
+    'hostapd.conf' => $read(RASPI_HOSTAPD_CONFIG),
+    'dhcpcd.conf' => $read(RASPI_DHCPCD_CONFIG),
+    '090_' . $iface . '.conf' => $read(RASPI_DNSMASQ_PREFIX . $iface . '.conf'),
+    '090_raspap.conf' => $read(RASPI_DNSMASQ_PREFIX . 'raspap.conf'),
+];
+// kind, name, new content, old content (for the rollback)
+$files = [
+    ['hostapd', null, HotspotReset::hostapd($template('hostapd.conf'), $iface, $current['hostapd.conf']), $current['hostapd.conf']],
+    ['dhcpcd', null, HotspotReset::dhcpcd($current['dhcpcd.conf'], $template('dhcpcd.conf'), $iface, $net['dhcp']), $current['dhcpcd.conf']],
+    ['dnsmasq', $iface, HotspotReset::dnsmasq($template('090_wlan0.conf'), $iface, $net['range']), $current['090_' . $iface . '.conf']],
+    ['dnsmasq', 'raspap', $template('090_raspap.conf'), $current['090_raspap.conf']],
 ];
 
-// kind, name, new content, key of the current content
-$steps = [
-    ['hostapd', null, HotspotReset::hostapd((string)file_get_contents($path . '/hostapd.conf'), $iface, $current['hostapd']), 'hostapd'],
-    ['dhcpcd', null, HotspotReset::dhcpcd($current['dhcpcd'], (string)file_get_contents($path . '/dhcpcd.conf'), $iface, $net['dhcp']), 'dhcpcd'],
-    ['dnsmasq', $iface, HotspotReset::dnsmasq((string)file_get_contents($path . '/090_wlan0.conf'), $iface, $net['range']), 'dnsmasq-iface'],
-    ['dnsmasq', 'raspap', (string)file_get_contents($path . '/090_raspap.conf'), 'dnsmasq-raspap'],
-];
-
-// save the current files: /etc/raspap/backups/reset-<time>, mode 600, the 3 newest stay
-// a random part, so two resets in the same second do not use the same directory
-$backup = RASPI_CONFIG . '/backups/reset-' . date('Ymd-His') . '-' . bin2hex(random_bytes(3));
-$umask = umask(0077);
-$saved = @mkdir($backup, 0700);
-foreach ($current as $key => $content) {
-    if ($saved && $content !== null) {
-        $saved = file_put_contents($backup . '/' . $key . '.conf', $content) !== false;
-    }
-}
-umask($umask);
-if (!$saved) {
+$backup = HotspotReset::saveBackup(RASPI_CONFIG . '/backups', $current);
+if ($backup === null) {
     resetResult(1, 'Unable to save the current configuration. Nothing changed.');
 }
-$old = glob(RASPI_CONFIG . '/backups/reset-*', GLOB_ONLYDIR) ?: [];
-rsort($old);
-foreach (array_slice($old, 3) as $dir) {
-    array_map('unlink', glob($dir . '/*') ?: []);
-    @rmdir($dir);
-}
-
-$done = [];
-foreach ($steps as [$kind, $name, $content, $key]) {
-    if (!ConfigFile::install($kind, $name, $content)) {
-        $error = ConfigFile::$lastError;
-        // put back the files of the earlier steps
-        foreach (array_reverse($done) as [$k, $n, $c]) {
-            if ($c !== null) {
-                ConfigFile::install($k, $n, $c);
-            } elseif ($k === 'dnsmasq') {
-                ConfigFile::remove($k, (string)$n);
-            }
-        }
-        resetResult(1, 'The reset failed, the old configuration stays: ' . $error);
-    }
-    $done[] = [$kind, $name, $current[$key]];
+if (!ConfigFile::installAll($files)) {
+    resetResult(1, 'The reset failed, the old configuration stays: ' . ConfigFile::$lastError);
 }
 resetResult(0, sprintf('Reset of the hotspot on %s done. Saved the old files in %s.', $iface, $backup));
