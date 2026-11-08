@@ -159,4 +159,9 @@ c "the level keeps class names and loses quotes" 'echo "$out" | grep -q "alert-w
 c "no caller escapes a message itself (it would show twice escaped)" '[ -z "$(cd "$S" && grep -rn --include="*.php" --exclude-dir=tests --exclude-dir=vendor "addMessage(" . | grep htmlspecialchars | grep -v ", true, true)")" ]'
 c "HTML messages escape their values" '[ -z "$(cd "$S" && grep -rn --include="*.php" --exclude-dir=tests --exclude-dir=vendor "addMessage(" . | grep ", true, true)" | grep -v htmlspecialchars)" ]'
 
+
+echo "== PHP 8.2+ deprecations in the error page"
+out=$(cd "$W" && php -d error_reporting=E_ALL -d display_errors=stderr -r 'require "includes/autoload.php"; new RaspAP\Exceptions\HtmlErrorRenderer(); echo "ok";' 2>&1)
+c "HtmlErrorRenderer has no dynamic properties" '[ "$out" = ok ]'
+
 finish

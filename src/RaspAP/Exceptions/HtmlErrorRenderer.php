@@ -15,6 +15,11 @@ namespace RaspAP\Exceptions;
 
 class HtmlErrorRenderer
 {
+    // hardened fork: declared properties (dynamic properties are deprecated
+    // since PHP 8.2, and the error page must not add a deprecation itself)
+    private string $charset;
+    private string $projectDir;
+    private string $template;
 
     public function __construct()
     {
