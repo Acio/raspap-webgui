@@ -96,16 +96,24 @@ check_rule() {
     fi
 }
 
-# A destination of a configuration file: absolute, and not a file of RaspAP
-# or of the system (plugin data in the web root is allowed)
+# A destination of a configuration file: absolute, not a link or a
+# directory, and not a file of RaspAP or of the system. Plugin data in the web
+# root is allowed and belongs to www-data. Sets dest_owner.
 check_destination() {
     local dest
     dest="$(realpath -m -- "$1")"
     [[ "$1" == /* ]] || die 2 "refused destination (not absolute): $1"
-    below "$dest" "${webroot_data[@]}" && return 0
+    if [ -L "$1" ] || [ -d "$1" ]; then
+        die 2 "refused destination (a link or a directory): $1"
+    fi
+    if below "$dest" "${webroot_data[@]}"; then
+        dest_owner="$raspap_user"
+        return 0
+    fi
     if [ "$dest" = / ] || below "$dest" "${protected_paths[@]}"; then
         die 2 "refused destination (protected): $1"
     fi
+    dest_owner=root
 }
 
 # A file of the plugin, relative to the plugin directory: no "..", a regular
@@ -115,7 +123,7 @@ plugin_file() {
     [[ "$rel" =~ ^[A-Za-z0-9_][A-Za-z0-9_./@-]*$ ]] && [[ "/$rel/" != */../* ]] || die 2 "refused plugin file name: $rel"
     [ -f "$src/$rel" ] && [ ! -L "$src/$rel" ] || die 2 "the plugin has no file $rel"
     # also no linked directory on the way out of the plugin
-    [[ "$(realpath -- "$src/$rel")" == "$(realpath -- "$src")"/* ]] || die 2 "refused plugin file (outside the plugin): $rel"
+    [[ "$(realpath -- "$src/$rel")" == "$src_real"/* ]] || die 2 "refused plugin file (outside the plugin): $rel"
 }
 
 [ "$#" -eq 2 ] && [ "$1" = install ] || usage
@@ -126,25 +134,27 @@ command -v jq > /dev/null || die 1 "jq is missing"
 # the root-owned plugin list of the release
 [ -f "$list" ] && [ ! -L "$list" ] && [ "$(stat -c %u "$list")" = 0 ] &&
     [ -z "$(find "$list" -perm /022)" ] || die 1 "$list is missing or not owned by root"
-entry=$(jq -c --arg n "$name" '[(.plugins // .)[] | select(.name == $n)] | first // empty' "$list") ||
+entry=$(jq -c --arg n "$name" '[.plugins[] | select(.name == $n)] | first // empty' "$list") ||
     die 1 "unable to read $list"
 [ -n "$entry" ] || die 2 "the plugin is not in the plugin list: $name"
 field() { jq -r "$1" <<< "$entry"; }
 
-reason=$(field '.unavailable // empty')
+# the single fields, in one jq call (the separator is not white space, so an
+# empty field stays a field)
+IFS=$'\x1f' read -r reason install_path uri unsupported < <(jq -r '[(.unavailable // ""), (.install_path // ""),
+    (.plugin_uri // ""), ([("keys", "dpkgs", "user_nonprivileged") as $k | select((.[$k] // []) | length > 0) | $k] | join(" "))]
+    | join("\u001f")' <<< "$entry")
 [ -z "$reason" ] || die 2 "$name is not available in the hardened fork: $reason"
-[ "$(field '.install_path // empty')" = plugins-available ] ||
-    die 2 "$name: the hardened fork installs only bundled plugins"
-for key in keys dpkgs user_nonprivileged; do
-    [ "$(field "(.$key // []) | length")" = 0 ] || die 2 "$name: \"$key\" is not supported in the hardened fork"
-done
+[ "$install_path" = plugins-available ] || die 2 "$name: the hardened fork installs only bundled plugins"
+[ -z "$unsupported" ] || die 2 "$name: \"${unsupported%% *}\" is not supported in the hardened fork"
 
-dir=$(basename "$(field '.plugin_uri // empty')")
+dir=$(basename "$uri")
 [[ "$dir" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "$name: invalid plugin directory"
 plugin_name="${name// /}"
 [[ "$plugin_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "invalid plugin name: $name"
 src="$available/$dir"
 [ -d "$src" ] && [ ! -L "$src" ] && [ "$(stat -c %u "$src")" = 0 ] || die 1 "$src is missing or not owned by root"
+src_real=$(realpath -- "$src")
 target="$webroot_dir/plugins/$dir"
 if [ -e "$target" ] || [ -L "$target" ]; then
     echo "$name is already installed" >&2
@@ -160,30 +170,30 @@ mapfile -t packages < <(field '(.dependencies // {}) | keys[]')
 for package in "${packages[@]}"; do
     [[ "$package" =~ ^[a-z0-9][a-z0-9+.-]{1,63}$ ]] || die 2 "refused package name: $package"
 done
+# the configuration files: source in the plugin, destination and its owner
 config_src=() config_dest=()
+declare -A config_owner=()
 while IFS=$'\t' read -r s d; do
     [ -n "$s" ] || continue
     plugin_file "$s"
     [[ "$d" == */ ]] && d="$d$(basename "$s")"
     check_destination "$d"
-    if [ -L "$d" ] || [ -d "$d" ]; then
-        die 2 "refused destination (a link or a directory): $d"
-    fi
     config_src+=("$s")
     config_dest+=("$d")
+    config_owner["$d"]="$dest_owner"
 done < <(field '.configuration[]? | [.source, .destination] | @tsv')
 perm_file=() perm_owner=() perm_group=() perm_mode=()
 while IFS=$'\t' read -r f o g m; do
     [ -n "$f" ] || continue
-    printf '%s\n' "${config_dest[@]}" | grep -qxF -- "$f" || die 2 "refused permissions: $f is not a configuration file of the plugin"
+    [ -n "${config_owner[$f]:-}" ] || die 2 "refused permissions: $f is not a configuration file of the plugin"
     [[ "$o" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$g" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$m" =~ ^0?[0-7]{3}$ ]] ||
         die 2 "refused permissions: invalid owner, group or mode for $f"
-    if ! below "$(realpath -m -- "$f")" "${webroot_data[@]}" && { [ "$o" != root ] || [ "$g" != root ] || [ $((8#$m & 8#022)) != 0 ]; }; then
+    if [ "${config_owner[$f]}" = root ] && { [ "$o" != root ] || [ "$g" != root ] || [ $((8#$m & 8#022)) != 0 ]; }; then
         die 2 "refused permissions: a file outside the web root must belong to root and not be writable by others: $f"
     fi
     perm_file+=("$f") perm_owner+=("$o") perm_group+=("$g") perm_mode+=("$m")
 done < <(field '.permissions[]? | [.file, .owner, .group, .mode] | @tsv')
-mapfile -t scripts < <(field '.javascript | if type == "object" then .source elif type == "array" then .[] elif type == "string" then . else empty end')
+mapfile -t scripts < <(field '.javascript.source? // empty')
 for js in "${scripts[@]}"; do
     plugin_file "$js"
     [[ "$js" == *.js ]] || die 2 "refused JavaScript file: $js"
@@ -218,11 +228,7 @@ for i in "${!config_src[@]}"; do
     d="${config_dest[$i]}"
     [ -e "$d" ] || undo+=("$d")
     mkdir -p -- "$(dirname "$d")"
-    if below "$(realpath -m -- "$d")" "${webroot_data[@]}"; then
-        install -o "$raspap_user" -g "$raspap_user" -m 644 -- "$src/${config_src[$i]}" "$d"
-    else
-        install -o root -g root -m 644 -- "$src/${config_src[$i]}" "$d"
-    fi
+    install -o "${config_owner[$d]}" -g "${config_owner[$d]}" -m 644 -- "$src/${config_src[$i]}" "$d"
 done
 for i in "${!perm_file[@]}"; do
     chown "${perm_owner[$i]}:${perm_group[$i]}" -- "${perm_file[$i]}"

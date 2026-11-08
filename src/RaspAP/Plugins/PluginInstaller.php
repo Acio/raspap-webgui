@@ -143,30 +143,17 @@ class PluginInstaller
      */
     public function installPluginByName(string $name): bool
     {
-        $entry = null;
-        foreach ($this->getUserPlugins() as $plugin) {
-            if (($plugin['manifest']['name'] ?? null) === $name) {
-                $entry = $plugin['manifest'];
-                break;
-            }
-        }
-        if ($entry === null) {
-            throw new \Exception('The plugin is not in the plugin list.');
-        }
-        if (!empty($entry['unavailable'])) {
-            throw new \Exception('This plugin is not available in the hardened fork: ' . (string)$entry['unavailable']);
-        }
+        // the helper finds the plugin in its root-owned copy of the list, and
+        // refuses a plugin that is not in the list or not available
         $proc = proc_open(
             ['sudo', $this->helperScriptPath, 'install', $name],
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['pipe', 'w']],
             $pipes
         );
         if (!is_resource($proc)) {
             throw new \Exception('Unable to start the plugin helper.');
         }
-        stream_get_contents($pipes[1]);
         $error = trim((string)stream_get_contents($pipes[2]));
-        fclose($pipes[1]);
         fclose($pipes[2]);
         $rc = proc_close($proc);
         if ($rc !== 0) {
