@@ -16,15 +16,16 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 
 | Area | What the fork does | Commits | Test suite |
 |---|---|---|---|
-| Root scripts | `configport.sh`, `configauth.sh`, `servicestart.sh`, `update_blocklist.sh`, `debuglog.sh` and `toggle-routing.sh` check their arguments. The sudo rule of the updater allows only the web update. | `a7415111` | smallbugs, update |
+| Root scripts | `configport.sh`, `configauth.sh`, `servicestart.sh`, `debuglog.sh` and `toggle-routing.sh` check their arguments. The sudo rule of the updater allows only the web update. | `a7415111` | smallbugs, update |
 | Plugin data | The bundled plugins keep their data in the private cache directory. | `bd08f907` | none |
-| Config files | `raspap-config-file.sh` installs the hostapd, dhcpcd and dnsmasq files from stdin, with an option filter. hostapd files are root:www-data 640. | `cf0d7c68`, `0d51f2db` | smallbugs, hardening |
+| Config files | `raspap-config-file.sh` installs the hostapd, dhcpcd and dnsmasq files from stdin, with an option filter. dnsmasq files get only the options of the web interface (an allowlist), and `custom.txt` only hosts lines. hostapd files are root:www-data 640. | `cf0d7c68`, `0d51f2db`, `5cc26041` | smallbugs, hardening, adblock |
+| Ad blocking | `update_blocklist.sh` takes only a list name. The URL and the target file come from the root-owned `/etc/raspap/adblock/blocklists.json`. The script keeps only blocking lines, because dnsmasq reads `domains.txt` as its configuration. An update filters the installed lists again (`update_blocklist.sh clean`). | `5cc26041` | adblock |
 | VPN files | `raspap-vpn-file.sh` installs, reads and removes the WireGuard and OpenVPN files. | `0d402c3b` | static (sudo commands) |
 | WiFi client | `raspap-wifi.sh` runs wpa_cli, wpa_supplicant and iw with checked arguments. | `321b4a59` | smallbugs (sudo rules) |
 | Network tools and logs | `raspap-net.sh` and `raspap-logs.sh` run ip, iw, nmap and wvdial, and read and clear the logs. `clearlog.php` clears only the 3 logs. | `a611aef5` | smallbugs |
 | sudo rules | Rules without a caller are removed, reboot only without arguments, no rule to move or touch `.env`. | `a7415111`, `a611aef5`, `0d51f2db` | static, smallbugs, hardening |
 | RestAPI | The service runs as the system user `raspap-api`, from the root-owned venv `/etc/raspap/api/venv`, with systemd hardening. An update moves an older install. A root helper writes the key. | `25550589`, `da85ccd4`, `0d51f2db` | restapi, hardening |
-| Updates | The update installs only the latest release of this fork, and saves the web root first. It keeps the plugins and their JavaScript, and writes `defaults.json` also with `fs.protected_regular=2`. An explicit `--branch` needs no release. The release tag is read also from minified JSON. | `e0843270`, `87aa3791`, `5651c90a`, `32c0834e`, `b173d3d5`, `cfb85a95` | update |
+| Updates | The update installs only the latest release of this fork, and saves the web root first. It keeps the plugins and their JavaScript, and writes `defaults.json` also with `fs.protected_regular=2`. An explicit `--branch` needs no release. The release tag is read also from minified JSON. The installer parts and the clone are in private temporary files, and the web root belongs to root until the last step. | `e0843270`, `87aa3791`, `5651c90a`, `32c0834e`, `b173d3d5`, `cfb85a95`, `f8dfc279` | update |
 | Firewall plugin | The bundled Firewall plugin applies its rules with `raspap-firewall.sh` in own chains. An update replaces billz/Firewall. | `1a84ccbe`, `613ae46f`, `0d51f2db` | firewall, plugins, hardening |
 | Plugin installs | The browser sends only the plugin name. The source comes from `config/plugins.json`. | `12fe5392` | plugins |
 | Plugin helper | `plugin_helper.sh` refuses protected paths and unsafe sudo rules. | `e95ec97c` | plugins |
@@ -42,7 +43,7 @@ RaspAP itself has these changes now: the RestAPI key (#2233), the private OpenVP
 These changes have no own test yet. Examine them by hand after an upstream merge:
 
 - The plugin data in the private cache directory (`bd08f907`).
-- The option filters of `raspap-config-file.sh` and the checks of `raspap-vpn-file.sh`, `raspap-wifi.sh`, `raspap-net.sh` and `raspap-logs.sh`.
+- The option filters of `raspap-config-file.sh` for hostapd and dhcpcd, and the checks of `raspap-vpn-file.sh`, `raspap-wifi.sh`, `raspap-net.sh` and `raspap-logs.sh`.
 - The systemd options of `restapi.service` and `raspap-network-activity@.service`. The test container has no systemd, so test them on a device.
 
 ## Settings that are not in git
@@ -55,7 +56,7 @@ These settings are on GitHub. A merge does not change them, but a new fork or a 
 
 ## Merge an upstream release
 
-1. Fetch upstream: `git fetch upstream`.
+1. Download the upstream changes: `git fetch upstream`.
 2. Merge into `pi/hardened`: `git merge --no-ff upstream/master` (or the release tag).
 3. Resolve the conflicts with these rules:
    - `installers/raspap.sudoers`: keep the fork version. For each new upstream rule, decide: a helper, a rule with exact arguments, or no rule.
