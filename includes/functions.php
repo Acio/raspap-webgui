@@ -78,7 +78,8 @@ function getDefaultNetValue($svc,$iface,$key)
     if ($json === null) {
         return false;
     } else {
-        return $json[$svc][$iface][$key][0];
+        // hardened fork: no warning for an interface without defaults (lo, tailscale0)
+        return $json[$svc][$iface][$key][0] ?? false;
     }
 }
 

@@ -128,7 +128,7 @@ initializeApp();
         </footer>
       </div>
     </div>
-    <?php ob_end_flush(); ?>
+    <?php if (ob_get_level() > 0) { ob_end_flush(); } ?>
     <!-- jQuery -->
     <script src="dist/jquery/jquery.min.js?v=<?= filemtime('dist/jquery/jquery.min.js'); ?>"></script>
 

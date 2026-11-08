@@ -55,6 +55,8 @@ function DisplayRestAPI()
     array_shift($output);
     $serviceLog = implode("\n", $output);
 
+    // hardened fork: no warning when the RestAPI does not run
+    $docMsg = '';
     if ($serviceStatus == "up") {
         $docUrl = getDocUrl();
         $faicon = "<i class=\"text-gray-500 fas fa-external-link-alt ml-1\"></i>"; 
