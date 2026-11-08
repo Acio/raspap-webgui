@@ -1,0 +1,28 @@
+{
+  "name": "NTP Server",
+  "version": "v1.1.2-hardened.1",
+  "description": "A Network Time Protocol (NTP) server for RaspAP",
+  "author": "Bill Z",
+  "author_uri": "https://github.com/billz",
+  "plugin_uri": "https://github.com/Acio/raspap-webgui/tree/pi/hardened/plugins-available/NTPServer",
+  "plugin_docs": "https://docs.raspap.com/ntp/",
+  "license": "GPL-3.0",
+  "namespace": "RaspAP\\Plugins\\NTPServer",
+  "default_locale": "en_US",
+  "dependencies": {
+    "ntpsec": "1.2.3"
+  },
+  "icon": "far fa-clock",
+  "install_path": "plugins-available",
+  "javascript": {
+    "source": "templates/app/js/NTPServer.js"
+  },
+  "manifest_version": "1.0",
+  "sudoers": [
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ntp.sh install",
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ntp.sh start",
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ntp.sh stop",
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ntp.sh restart",
+    "www-data ALL=(ALL) NOPASSWD:/usr/local/sbin/raspap-ntp.sh peers"
+  ]
+}

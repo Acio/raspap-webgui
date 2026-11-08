@@ -86,6 +86,7 @@ function _update_raspap() {
     _enable_network_activity_monitor
     _create_plugin_scripts
     _migrate_firewall_plugin
+    _migrate_ntpserver_plugin
     # last: until here, the update installs root files from the web root, so
     # www-data must not own it yet
     _change_file_ownership
@@ -430,38 +431,55 @@ function _create_hostapd_scripts() {
 }
 
 # Generate plugin helper scripts
+# Replaces a downloaded plugin with the bundled plugin of the hardened fork:
+# a symlink to plugins-available, the sudo rules of the bundled manifest and
+# its JavaScript. Only when the downloaded plugin is installed.
+# Usage: _migrate_to_bundled_plugin <plugin name> <sudoers name> <JavaScript file>
+function _migrate_to_bundled_plugin() {
+    local name="$1" rules="/etc/sudoers.d/$2" js="$3"
+    local old="$webroot_dir/plugins/$name"
+    local new="$webroot_dir/plugins-available/$name"
+    if [ ! -d "$new" ] || [ ! -d "$old" ] || [ -L "$old" ]; then
+        return 1
+    fi
+    _install_log "Replacing the $name plugin with the plugin of the hardened fork"
+    sudo rm -rf "$old" || _install_status 1 "Unable to remove the old $name plugin"
+    sudo ln -s "$new" "$old" || _install_status 1 "Unable to install the $name plugin"
+    sudo chown -h $raspap_user:$raspap_user "$old"
+
+    # the sudo rules of the bundled manifest
+    local tmp
+    tmp=$(sudo mktemp /etc/sudoers.d/.plugin.XXXXXX) || _install_status 1 "Unable to create a temporary file"
+    php -r 'echo implode(PHP_EOL, json_decode(file_get_contents($argv[1]), true)["sudoers"]).PHP_EOL;' -- "$new/manifest.json" |
+        sudo tee "$tmp" > /dev/null || { sudo rm -f "$tmp"; _install_status 1 "Unable to write the $name sudo rules"; }
+    sudo chmod 440 "$tmp"
+    if sudo visudo -cqf "$tmp"; then
+        sudo mv -f "$tmp" "$rules" || _install_status 1 "Unable to install the $name sudo rules"
+    else
+        sudo rm -f "$tmp"
+        _install_status 1 "Invalid $name sudo rules"
+    fi
+    sudo mkdir -p "$webroot_dir/app/js/plugins"
+    sudo install -o $raspap_user -g $raspap_user -m 644 "$new/templates/app/js/$js" "$webroot_dir/app/js/plugins/$js" ||
+        _install_status 1 "Unable to install $js"
+    return 0
+}
+
 # Replaces the Firewall plugin of billz/Firewall with the bundled Firewall
 # plugin of the hardened fork. The old plugin ran scripts from /tmp as root and
 # flushed all iptables rules. Only when the old plugin is installed.
 function _migrate_firewall_plugin() {
-    local old="$webroot_dir/plugins/Firewall"
-    local new="$webroot_dir/plugins-available/Firewall"
-    if [ ! -d "$new" ] || [ ! -d "$old" ] || [ -L "$old" ]; then
-        return 0
-    fi
-    _install_log "Replacing the Firewall plugin with the plugin of the hardened fork"
-    sudo rm -rf "$old" || _install_status 1 "Unable to remove the old Firewall plugin"
-    sudo ln -s "$new" "$old" || _install_status 1 "Unable to install the Firewall plugin"
-    sudo chown -h $raspap_user:$raspap_user "$old"
-
-    # the sudo rules of the bundled manifest, without the /tmp scripts
-    local tmp
-    tmp=$(sudo mktemp /etc/sudoers.d/.firewall.XXXXXX) || _install_status 1 "Unable to create a temporary file"
-    php -r 'echo implode(PHP_EOL, json_decode(file_get_contents($argv[1]), true)["sudoers"]).PHP_EOL;' -- "$new/manifest.json" |
-        sudo tee "$tmp" > /dev/null || { sudo rm -f "$tmp"; _install_status 1 "Unable to write the Firewall sudo rules"; }
-    sudo chmod 440 "$tmp"
-    if sudo visudo -cqf "$tmp"; then
-        sudo mv -f "$tmp" /etc/sudoers.d/090_Firewall || _install_status 1 "Unable to install the Firewall sudo rules"
-    else
-        sudo rm -f "$tmp"
-        _install_status 1 "Invalid Firewall sudo rules"
-    fi
-    sudo mkdir -p "$webroot_dir/app/js/plugins"
-    sudo install -o $raspap_user -g $raspap_user -m 644 "$new/templates/app/js/Firewall.js" "$webroot_dir/app/js/plugins/Firewall.js" ||
-        _install_status 1 "Unable to install Firewall.js"
-
+    _migrate_to_bundled_plugin Firewall 090_Firewall Firewall.js || return 0
     # the rules of the old plugin move to the own chains of the helper
     sudo /usr/local/sbin/raspap-firewall.sh apply || _install_status 1 "Unable to apply the firewall rules"
+    _install_status 0
+}
+
+# Replaces the NTP Server plugin of billz/NTPServer with the bundled plugin of
+# the hardened fork. The old plugin copied /tmp/ntpdata to ntp.conf as root,
+# and its sudo rules had wildcards. Only when the old plugin is installed.
+function _migrate_ntpserver_plugin() {
+    _migrate_to_bundled_plugin NTPServer 090_NTPServer NTPServer.js || return 0
     _install_status 0
 }
 
@@ -1551,10 +1569,12 @@ function _patch_system_files() {
     sudo install -o root -g root -m 755 "$webroot_dir/installers/net.sh" /usr/local/sbin/raspap-net.sh || _install_status 1 "Unable to install network tools helper"
     sudo install -o root -g root -m 755 "$webroot_dir/installers/logs.sh" /usr/local/sbin/raspap-logs.sh || _install_status 1 "Unable to install log helper"
 
-    # The root helper of the Firewall plugin, and the files of the Tailscale
+    # The root helpers of the Firewall and NTP Server plugins, and the files of the Tailscale
     # plugin that run as root. plugin_helper.sh refuses these paths, so the
     # installer installs them.
     sudo install -o root -g root -m 755 "$webroot_dir/installers/firewall.sh" /usr/local/sbin/raspap-firewall.sh || _install_status 1 "Unable to install firewall helper"
+    # the root helper of the NTP Server plugin
+    sudo install -o root -g root -m 755 "$webroot_dir/installers/ntp.sh" /usr/local/sbin/raspap-ntp.sh || _install_status 1 "Unable to install NTP helper"
     # the blocklist update script reads its URLs from a root-owned file, and
     # keeps only blocking lines. The installed lists get the same filter.
     if [ -d "$raspap_dir/adblock" ]; then

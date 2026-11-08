@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # Plugins: the guards of plugin_helper.sh, install by name from the plugin list
-# (bundled and downloaded), the migration of the old Firewall plugin, and the
-# helpers that the installer installs. Needs NET_ADMIN and internet access
+# (bundled and downloaded), the migration of the old Firewall and NTP Server
+# plugins, the NTP helper, and the helpers that the installer installs. Needs NET_ADMIN and internet access
 # (one plugin download from GitHub).
 
 . /s/tests/fork/lib.sh
@@ -12,6 +12,7 @@ mkdir -p /etc/raspap/networking /etc/raspap/plugins /etc/iptables /etc/hostapd
 setup_webroot
 install -o root -g root -m 750 "$S/installers/plugin_helper.sh" /etc/raspap/plugins/plugin_helper.sh
 install -o root -g root -m 755 "$S/installers/firewall.sh" /usr/local/sbin/raspap-firewall.sh
+install -o root -g root -m 755 "$S/installers/ntp.sh" /usr/local/sbin/raspap-ntp.sh
 install -o root -g root -m 755 "$S/installers/raspap-iptables-save.sh" /usr/local/sbin/raspap-iptables-save.sh
 setup_sudoers
 chown root:www-data /etc/raspap /etc/raspap/networking
@@ -96,6 +97,11 @@ pi() {
 }
 out=$(pi Firewall)
 c "Firewall (bundled): $out" '[ "$out" = true ] && [ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ] && grep -q "raspap-firewall.sh apply" /etc/sudoers.d/090_Firewall && ! grep -q /tmp /etc/sudoers.d/090_Firewall && [ -f "$W/app/js/plugins/Firewall.js" ]'
+# the test image has no apt lists: a stub records the package install
+printf '#!/bin/sh\necho "apt-get $*" >> /tmp/apt.log\n' > /usr/local/sbin/apt-get; chmod 755 /usr/local/sbin/apt-get
+out=$(pi "NTP Server")
+rm -f /usr/local/sbin/apt-get
+c "NTP Server (bundled, ntpsec from apt): $out" '[ "$out" = true ] && grep -q "install -y ntpsec" /tmp/apt.log && [ "$(readlink "$W/plugins/NTPServer")" = "$W/plugins-available/NTPServer" ] && grep -q "raspap-ntp.sh install" /etc/sudoers.d/090_NTPServer && ! grep -qE "/tmp|\*" /etc/sudoers.d/090_NTPServer && [ -f "$W/app/js/plugins/NTPServer.js" ]'
 out=$(pi Wireshark)
 c "Wireshark (bundled, manifest name TShark): $out" '[ "$out" = true ] && [ -f /etc/sudoers.d/090_TShark ]'
 out=$(pi "Unknown plugin")
@@ -122,7 +128,7 @@ _install_log() { :; }
 _install_status() { [ "$1" = 0 ] || { echo "STATUS $*"; return 1; }; }
 webroot_dir=$W
 raspap_user=www-data
-eval "$(sed -n '/^function _migrate_firewall_plugin()/,/^}/p' "$S/installers/common.sh")"
+eval "$(sed -n '/^function _migrate_to_bundled_plugin()/,/^}/p;/^function _migrate_firewall_plugin()/,/^}/p;/^function _migrate_ntpserver_plugin()/,/^}/p' "$S/installers/common.sh")"
 out=$(_migrate_firewall_plugin 2>&1); rc=$?
 c "migration ran (rc $rc)" '[ $rc = 0 ]'
 c "plugins/Firewall is now the bundled plugin" '[ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ]'
@@ -131,15 +137,77 @@ c "rules in the own chain, old flat rules gone" 'iptables -S RASPAP_FW_INPUT | g
 out=$(_migrate_firewall_plugin 2>&1)
 c "second run: nothing to do" '[ -z "$out" ]'
 
+echo "== migration of the old NTP Server plugin (common.sh)"
+rm -rf "$W/plugins/NTPServer" /etc/sudoers.d/090_NTPServer "$W/app/js/plugins/NTPServer.js"
+mkdir -p "$W/plugins/NTPServer"
+cp "$S/tests/fork/fixtures/manifests/billz-NTPServer.json" "$W/plugins/NTPServer/manifest.json"
+chown -R www-data "$W/plugins/NTPServer"
+manifest_sudoers "$S/tests/fork/fixtures/manifests/billz-NTPServer.json" > /etc/sudoers.d/090_NTPServer
+chmod 440 /etc/sudoers.d/090_NTPServer
+out=$(_migrate_ntpserver_plugin 2>&1); rc=$?
+c "migration ran (rc $rc)" '[ $rc = 0 ]'
+c "plugins/NTPServer is now the bundled plugin, NTPServer.js installed" '[ "$(readlink "$W/plugins/NTPServer")" = "$W/plugins-available/NTPServer" ] && [ -f "$W/app/js/plugins/NTPServer.js" ]'
+c "090_NTPServer: only the helper, no /tmp and no wildcards, root 440" '! grep -qE "/tmp|\*|systemctl|ntpq" /etc/sudoers.d/090_NTPServer && [ "$(grep -c "raspap-ntp.sh" /etc/sudoers.d/090_NTPServer)" = 5 ] && [ "$(stat -c %U:%a /etc/sudoers.d/090_NTPServer)" = root:440 ]'
+out=$(_migrate_ntpserver_plugin 2>&1)
+c "second run: nothing to do" '[ -z "$out" ]'
+unset -f sudo
+
+echo "== NTP helper (raspap-ntp.sh)"
+mkdir -p /etc/ntpsec
+cp "$S/tests/fork/fixtures/ntp.conf-debian" /etc/ntpsec/ntp.conf
+N=/usr/local/sbin/raspap-ntp.sh
+nt() { printf '%s\n' "$1" | sudo -u www-data sudo -n $N install 2>&1; }
+ok_conf() { cmp -s /etc/ntpsec/ntp.conf "$1" && [ "$(stat -c %U:%G:%a /etc/ntpsec/ntp.conf)" = root:root:644 ] && [ -z "$(ls -A /etc/ntpsec | grep "^\.")" ]; }
+out=$(sudo -u www-data sudo -n $N install < "$S/tests/fork/fixtures/ntp.conf-pi" 2>&1)
+c "the ntp.conf of the Pi is accepted, root:root 644" 'ok_conf "$S/tests/fork/fixtures/ntp.conf-pi"'
+sed -E 's/^#(statsdir|statistics|filegen)/\1/' "$S/tests/fork/fixtures/ntp.conf-debian" > /tmp/ntp-stats.conf
+out=$(sudo -u www-data sudo -n $N install < /tmp/ntp-stats.conf 2>&1)
+c "the Debian default with statistics on is accepted" 'ok_conf /tmp/ntp-stats.conf'
+cp /etc/ntpsec/ntp.conf /tmp/ntp.ref
+for bad in 'includefile /etc/shadow' 'keys /etc/ntpsec/ntp.keys' 'logfile /etc/cron.d/x' 'driftfile /etc/x' \
+    'driftfile /var/lib/ntpsec/../../../etc/x' 'statsdir /tmp/' 'filegen loopstats file ../x type day enable' \
+    'refclock shm unit 0' 'server a.example iburst;touch' 'server $(id)' 'pool -x' 'setvar x = y' 'nts key /tmp/k'; do
+    out=$(nt "server ok.example iburst
+$bad")
+    c "refused, ntp.conf unchanged: $bad" 'cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref && echo "$out" | grep -q "line 2 is not allowed" && [ -z "$(ls -A /etc/ntpsec | grep "^\.")" ]'
+done
+out=$(head -c 70000 /dev/zero | tr '\0' '#' | sudo -u www-data sudo -n $N install 2>&1)
+c "a configuration of more than 64 KB is refused" 'cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref && echo "$out" | grep -q "too large"'
+out=$(nt "# only a comment")
+c "an empty configuration is refused" 'cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref && echo "$out" | grep -q empty'
+out=$(printf 'server x.example\n' | $N check 2>&1); rc=$?
+c "check: accepted, nothing installed" '[ $rc = 0 ] && cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref'
+printf '#!/bin/sh\necho "systemctl $*"\n' > /usr/local/bin/systemctl; printf '#!/bin/sh\necho "ntpq $*"\n' > /usr/local/bin/ntpq
+chmod 755 /usr/local/bin/systemctl /usr/local/bin/ntpq
+out=$(sudo -u www-data sudo -n $N restart 2>&1; sudo -u www-data sudo -n $N peers 2>&1)
+c "www-data: restart and peers run fixed commands" '[ "$out" = "systemctl restart ntpd.service
+ntpq -p" ]'
+c "other arguments are refused by sudo" '! sudo -u www-data sudo -n $N install /etc/passwd 2> /dev/null < /dev/null && ! sudo -u www-data sudo -n $N enable 2> /dev/null'
+cp "$S/tests/fork/fixtures/ntp.conf-pi" /etc/ntpsec/ntp.conf
+np() {
+    (cd "$W" && sudo -u www-data php -r 'require "includes/config.php"; require "includes/autoload.php";
+        require "plugins/NTPServer/NTPServer.php";
+        $p = new RaspAP\Plugins\NTPServer\NTPServer("plugins", "NTPServer"); $s = new RaspAP\Messages\StatusMessage;
+        $m = new ReflectionMethod($p, $argv[1]); $m->setAccessible(true);
+        echo $m->invoke($p, $s, $argv[1] === "saveNTPSettings" ? explode(",", $argv[2]) : $argv[2]), "|", json_encode($s->messages ?? []);' -- "$@" 2>&1)
+}
+out=$(np saveNTPSettings "time.example iburst,1.2.3.4 iburst")
+c "plugin: servers saved through the helper" 'grep -qx "server time.example iburst" /etc/ntpsec/ntp.conf && grep -qx "server 1.2.3.4 iburst" /etc/ntpsec/ntp.conf && ! grep -q "ntp.ubuntu.com" /etc/ntpsec/ntp.conf && [ ! -e /tmp/ntpdata ]'
+cp /etc/ntpsec/ntp.conf /tmp/ntp.ref
+out=$(np saveNTPSettings 'x.example" onmouseover="alert(1)')
+c "plugin: a server value with quotes is refused, the message is escaped" 'cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref && echo "$out" | grep -q "&quot;" && ! echo "$out" | grep -q "\" onmouseover"'
+c "the bundled plugin has no /tmp files, no unserialize and no direct sudo commands" '! grep -vE "^\s*(\*|//)" "$S/plugins-available/NTPServer/NTPServer.php" | grep -qE "/tmp/|unserialize|sudo /bin|sudo /usr/bin"'
+
 echo "== installer: helpers of the plugins"
 systemctl() { :; }
-rm -f /usr/local/sbin/raspap-firewall.sh
+rm -f /usr/local/sbin/raspap-firewall.sh /usr/local/sbin/raspap-ntp.sh
+sudo() { "$@"; }
 raspap_dir=/etc/raspap
 # from the comment of the plugin helpers to the end of the Tailscale block
-eval "f() { $(awk '/# The root helper of the Firewall plugin, and the files of the Tailscale/ {p = 1} p {print} p && /tailscale-ethtool@.service/ {t = 1} t && /^    fi$/ {exit}' "$S/installers/common.sh") ; }"
+eval "f() { $(awk '/# The root helpers of the Firewall and NTP Server plugins, and the files of the Tailscale/ {p = 1} p {print} p && /tailscale-ethtool@.service/ {t = 1} t && /^    fi$/ {exit}' "$S/installers/common.sh") ; }"
 f
 unset -f sudo systemctl
-c "firewall helper, ts-optimize and the tailscale unit installed as root" '[ "$(stat -c %U:%a /usr/local/sbin/raspap-firewall.sh)" = root:755 ] && [ "$(stat -c %U:%a /usr/local/sbin/raspap-ts-optimize.sh)" = root:755 ] && [ "$(stat -c %U:%a /etc/systemd/system/tailscale-ethtool@.service)" = root:644 ]'
+c "firewall and NTP helpers, ts-optimize and the tailscale unit installed as root" '[ "$(stat -c %U:%a /usr/local/sbin/raspap-firewall.sh)" = root:755 ] && [ "$(stat -c %U:%a /usr/local/sbin/raspap-ntp.sh)" = root:755 ] && [ "$(stat -c %U:%a /usr/local/sbin/raspap-ts-optimize.sh)" = root:755 ] && [ "$(stat -c %U:%a /etc/systemd/system/tailscale-ethtool@.service)" = root:644 ]'
 c "the update does not run submodule update --remote" '! grep -q "submodule update --remote" "$S/installers/common.sh"'
 
 finish
