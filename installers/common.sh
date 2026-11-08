@@ -515,7 +515,31 @@ function _create_plugin_scripts() {
     # Change ownership and permissions of plugin script
     sudo chown -c root:root "$raspap_dir/plugins/"*.sh || _install_status 1 "Unable change owner and/or group"
     sudo chmod 750 "$raspap_dir/plugins/"*.sh || _install_status 1 "Unable to change file permissions"
+    _install_plugin_sources
     _install_status 0
+}
+
+# Hardened fork: plugin_helper.sh installs plugins from root-owned copies of
+# the plugin list and of the bundled plugins, not from the web root, which
+# belongs to www-data after the install. A failed copy keeps the old copy.
+function _install_plugin_sources() {
+    local dir="$raspap_dir/plugins" tmp
+    _install_log "Installing the root-owned plugin list and bundled plugins"
+    sudo install -o root -g root -m 644 "$webroot_dir/config/plugins.json" "$dir/plugins.json" ||
+        _install_status 1 "Unable to install the plugin list"
+    tmp=$(sudo mktemp -d "$dir/.available.XXXXXX") || _install_status 1 "Unable to create a temporary directory"
+    if sudo cp -a "$webroot_dir/plugins-available/." "$tmp/" && sudo chown -R root:root "$tmp" &&
+        sudo chmod -R go-w "$tmp" && sudo chmod 755 "$tmp"; then
+        sudo rm -rf "$dir/available.old"
+        if [ -d "$dir/available" ]; then
+            sudo mv "$dir/available" "$dir/available.old"
+        fi
+        sudo mv "$tmp" "$dir/available" && sudo rm -rf "$dir/available.old" ||
+            _install_status 1 "Unable to install the bundled plugins"
+    else
+        sudo rm -rf "$tmp"
+        _install_status 1 "Unable to copy the bundled plugins"
+    fi
 }
 
 # Generate lighttpd service control scripts

@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Plugins: the guards of plugin_helper.sh, install by name from the plugin list
-# (bundled and downloaded), the migration of the old Firewall and NTP Server
-# plugins, the NTP helper, and the helpers that the installer installs. Needs NET_ADMIN and internet access
-# (one plugin download from GitHub).
+# Plugins: install by name through plugin_helper.sh from the root-owned plugin
+# list and bundled plugins, the checks of the helper, the migration of the old
+# Firewall and NTP Server plugins, the NTP helper, and the helpers that the
+# installer installs. Needs NET_ADMIN.
 
 . /s/tests/fork/lib.sh
 
@@ -19,75 +19,25 @@ chown root:www-data /etc/raspap /etc/raspap/networking
 chmod 1775 /etc/raspap /etc/raspap/networking
 echo "interface=wlan1" > /etc/hostapd/hostapd.conf
 H=/etc/raspap/plugins/plugin_helper.sh
+P=/etc/raspap/plugins
 ph() { sudo -u www-data sudo -n "$H" "$@" 2>&1; }
-sud() { printf '%s\n' "$2" > "/tmp/$1"; chown www-data "/tmp/$1"; ph sudoers "/tmp/$1"; }
 
-echo "== plugin_helper.sh: sudo rules"
-out=$(sud 090_Good "www-data ALL=(ALL) NOPASSWD:/bin/systemctl * danted.service
-www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/danted.conf /etc/danted.conf")
-c "good rules installed, root 440" 'echo "$out" | grep -q OK && [ "$(stat -c %U:%a /etc/sudoers.d/090_Good)" = root:440 ]'
-sud 090_Fw "www-data ALL=(ALL) NOPASSWD:/tmp/iptables_raspap.sh" > /dev/null
-c "rule for a /tmp script refused" '[ ! -e /etc/sudoers.d/090_Fw ]'
-sud 090_Web "www-data ALL=(ALL) NOPASSWD:/var/www/html/x.sh" > /dev/null
-c "rule for a web root script refused" '[ ! -e /etc/sudoers.d/090_Web ]'
-sud 090_Root "root ALL=(ALL) NOPASSWD:/bin/true" > /dev/null
-c "rule for another user refused" '[ ! -e /etc/sudoers.d/090_Root ]'
-sud 090_All "www-data ALL=(ALL) NOPASSWD:ALL" > /dev/null
-c "NOPASSWD:ALL refused" '[ ! -e /etc/sudoers.d/090_All ]'
-cp /etc/sudoers.d/090_raspap /tmp/raspap.ref
-sud 090_raspap "www-data ALL=(ALL) NOPASSWD:/bin/true" > /dev/null
-c "090_raspap can not be replaced" 'cmp -s /etc/sudoers.d/090_raspap /tmp/raspap.ref'
-sud 090_Bad "www-data ALL=(ALL) NOPASSWD:/bin/true ,,," > /dev/null
-c "invalid syntax refused" '[ ! -e /etc/sudoers.d/090_Bad ]'
-mkdir -p /opt/x && printf '#!/bin/sh\n' > /opt/x/w.sh && chmod 777 /opt/x/w.sh
-sud 090_Ww "www-data ALL=(ALL) NOPASSWD:/opt/x/w.sh" > /dev/null
-c "world-writable command refused" '[ ! -e /etc/sudoers.d/090_Ww ]'
-out=$(ph sudoers /etc/hostname)
-c "sudoers file outside /tmp refused" '! echo "$out" | grep -qx OK'
+echo "== root-owned plugin list and bundled plugins (_install_plugin_sources)"
+eval "$(sed -n '/^function _install_plugin_sources()/,/^}/p' "$S/installers/common.sh")"
+ips() { ( sudo() { "$@"; }; _install_log() { :; }; _install_status() { echo "STATUS $*"; }; raspap_dir=/etc/raspap; webroot_dir=$W; _install_plugin_sources ); }
+ips > /dev/null 2>&1
+c "plugins.json and the bundled plugins are root-owned copies" 'cmp -s "$S/config/plugins.json" $P/plugins.json && [ "$(stat -c %U:%a $P/plugins.json)" = root:644 ] && [ -f $P/available/NTPServer/NTPServer.php ] && [ -z "$(find $P/available ! -user root -o -perm /022 ! -type l)" ]'
+echo changed > $P/available/marker; ips > /dev/null 2>&1
+c "a second run replaces the copy, no temporary directory left" '[ ! -e $P/available/marker ] && [ -z "$(ls -A $P | grep -E "^\.available|available\.old")" ]'
+mv "$W/plugins-available" "$W/plugins-available.away"; echo x > "$W/plugins-available"
+out=$(ips 2>&1)
+rm -f "$W/plugins-available"; mv "$W/plugins-available.away" "$W/plugins-available"
+c "a failed copy keeps the old copy" '[ -f $P/available/NTPServer/NTPServer.php ] && echo "$out" | grep -q "STATUS 1" && [ -z "$(ls -A $P | grep "^\.available")" ]'
 
-echo "== plugin_helper.sh: config, permissions, javascript, plugin"
-echo src > /tmp/src.conf; chown www-data /tmp/src.conf
-for d in /usr/local/sbin/raspap-x.sh /etc/sudoers.d/x /etc/raspap/networking/x.json /etc/systemd/system/x.service \
-    /etc/danted/../sudoers.d/y /var/www/html/includes/x.php /etc/iptables/rules.v4; do
-    out=$(ph config /tmp/src.conf "$d")
-    c "config to $d refused" '! echo "$out" | grep -qx OK && ! grep -qx src "$(realpath -m "$d")" 2> /dev/null'
-done
-out=$(ph config /tmp/src.conf /etc/danted.conf)
-c "config to /etc/danted.conf: root:root 644" 'echo "$out" | grep -qx OK && [ "$(stat -c %U:%G:%a /etc/danted.conf)" = root:root:644 ]'
-out=$(ph config /tmp/src.conf /etc/nodogsplash/htdocs/)
-c "config into a directory: file root-owned, directory not chowned" 'echo "$out" | grep -qx OK && [ "$(stat -c %U /etc/nodogsplash/htdocs/src.conf)" = root ] && [ "$(stat -c %U /etc/nodogsplash/htdocs)" = root ]'
-out=$(ph config /tmp/src.conf "$W/plugins/X/data.json")
-c "config into the plugin data: www-data" 'echo "$out" | grep -qx OK && [ "$(stat -c %U "$W/plugins/X/data.json")" = www-data ]'
-rm -rf "$W/plugins/X"
-ln -s /etc/hostname /etc/linkdest
-out=$(ph config /tmp/src.conf /etc/linkdest)
-c "config to a symlink refused" '! echo "$out" | grep -qx OK && [ "$(cat /etc/hostname)" != src ]'
-ph permissions /usr/local/sbin/raspap-firewall.sh www-data www-data 0777 > /dev/null
-c "permissions on a helper refused" '[ "$(stat -c %U:%a /usr/local/sbin/raspap-firewall.sh)" = root:755 ]'
-ph permissions /etc/danted.conf root root 0640 > /dev/null
-c "permissions on a plugin file allowed" '[ "$(stat -c %a /etc/danted.conf)" = 640 ]'
-ph permissions /etc/danted.conf root root "u+s,a+w" > /dev/null
-c "invalid mode refused" '[ "$(stat -c %a /etc/danted.conf)" = 640 ]'
-echo x > /tmp/x.js; chown www-data /tmp/x.js
-ph javascript /tmp/x.js /etc/raspap/ > /dev/null
-c "JavaScript outside app/js/plugins refused" '[ ! -e /etc/raspap/x.js ]'
-ph plugin /tmp /etc/raspap/plugins/Evil > /dev/null
-c "plugin copy outside plugins/ refused" '[ ! -e /etc/raspap/plugins/Evil ]'
-
-echo "== the sudo rules of the plugins in the list"
-for f in "$S"/tests/fork/fixtures/manifests/billz-*.json "$S"/plugins-available/*/manifest.json; do
-    n=$(basename "$(dirname "$f")")
-    [ "$n" = manifests ] && n=$(basename "$f" .json)
-    n=${n//-/}
-    manifest_sudoers "$f" > "/tmp/090_$n"; chown www-data "/tmp/090_$n"
-    r=$(ph sudoers "/tmp/090_$n")
-    if [ "$n" = billzFirewall ]; then
-        c "old billz Firewall rules refused" '! echo "$r" | grep -qx OK'
-    else
-        c "rules of $n accepted" 'echo "$r" | grep -qx OK'
-    fi
-done
-find /etc/sudoers.d -name '090_*' ! -name 090_raspap -delete
+echo "== the sudo rule of the helper"
+c "www-data may run only: plugin_helper.sh install <name>" 'grep -qx "www-data ALL=(ALL) NOPASSWD:/etc/raspap/plugins/plugin_helper.sh install \*" /etc/sudoers.d/090_raspap && ! sudo -u www-data sudo -n -l $H sudoers /tmp/x > /dev/null 2>&1 && ! sudo -u www-data sudo -n -l $H config /tmp/x /etc/x > /dev/null 2>&1'
+out=$(ph install Firewall extra); rc=$?
+c "the helper takes exactly one name (rc $rc)" '[ $rc = 2 ] && echo "$out" | grep -q Usage'
 
 echo "== install by name (PluginInstaller as www-data)"
 pi() {
@@ -96,23 +46,85 @@ pi() {
         catch (Exception $e) { echo "EXC: ".$e->getMessage(); }' -- "$1" 2>&1)
 }
 out=$(pi Firewall)
-c "Firewall (bundled): $out" '[ "$out" = true ] && [ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ] && grep -q "raspap-firewall.sh apply" /etc/sudoers.d/090_Firewall && ! grep -q /tmp /etc/sudoers.d/090_Firewall && [ -f "$W/app/js/plugins/Firewall.js" ]'
+c "Firewall (bundled): $out" '[ "$out" = true ] && [ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ] && [ "$(stat -c %U "$W/plugins/Firewall")" = www-data ] && grep -q "raspap-firewall.sh apply" /etc/sudoers.d/090_Firewall && [ "$(stat -c %U:%a /etc/sudoers.d/090_Firewall)" = root:440 ] && [ "$(stat -c %U:%a "$W/app/js/plugins/Firewall.js")" = www-data:644 ]'
+out=$(pi Firewall)
+c "a second install: already installed" 'echo "$out" | grep -q "already installed"'
 # the test image has no apt lists: a stub records the package install
 printf '#!/bin/sh\necho "apt-get $*" >> /tmp/apt.log\n' > /usr/local/sbin/apt-get; chmod 755 /usr/local/sbin/apt-get
 out=$(pi "NTP Server")
 rm -f /usr/local/sbin/apt-get
-c "NTP Server (bundled, ntpsec from apt): $out" '[ "$out" = true ] && grep -q "install -y ntpsec" /tmp/apt.log && [ "$(readlink "$W/plugins/NTPServer")" = "$W/plugins-available/NTPServer" ] && grep -q "raspap-ntp.sh install" /etc/sudoers.d/090_NTPServer && ! grep -qE "/tmp|\*" /etc/sudoers.d/090_NTPServer && [ -f "$W/app/js/plugins/NTPServer.js" ]'
-out=$(pi Wireshark)
-c "Wireshark (bundled, manifest name TShark): $out" '[ "$out" = true ] && [ -f /etc/sudoers.d/090_TShark ]'
+c "NTP Server (bundled, ntpsec from apt): $out" '[ "$out" = true ] && grep -q "install -y --no-install-recommends -- ntpsec" /tmp/apt.log && [ "$(readlink "$W/plugins/NTPServer")" = "$W/plugins-available/NTPServer" ] && [ "$(grep -c "raspap-ntp.sh" /etc/sudoers.d/090_NTPServer)" = 5 ] && [ -f "$W/app/js/plugins/NTPServer.js" ]'
+for n in Wireshark "Captive portal" DynDNS "Tor Proxy" "Socks Proxy" "Tailscale VPN"; do
+    out=$(pi "$n"); o2=$(ph install "$n"); rc=$?
+    c "$n: not available, in PHP and in the helper (rc $rc)" 'echo "$out" | grep -q "not available in the hardened fork" && [ $rc = 2 ] && echo "$o2" | grep -q "not available" && [ -z "$(ls /etc/sudoers.d | grep -vE "^(090_raspap|090_Firewall|090_NTPServer|README)$")" ]'
+done
 out=$(pi "Unknown plugin")
 c "a name that is not in the list is refused" 'echo "$out" | grep -q "not in the plugin list"'
-out=$(pi "../../etc")
-c "a path as name is refused" 'echo "$out" | grep -q "not in the plugin list"'
-c "PluginInstaller::installPlugin is private" '! (cd "$W" && php -r "require \"includes/config.php\"; require \"includes/autoload.php\"; \$r = new ReflectionMethod(\"RaspAP\\\\Plugins\\\\PluginInstaller\", \"installPlugin\"); exit(\$r->isPublic() ? 0 : 1);")'
+o2=$(ph install "../../etc"); rc=$?
+c "a path as name is refused by the helper (rc $rc)" '[ $rc = 2 ] && echo "$o2" | grep -q "not in the plugin list"'
+c "PluginInstaller has no shell commands of its own, only the helper" '! grep -qE "shell_exec|[^_]exec\(|system\(|passthru|getPluginArchive|unzip" "$W/src/RaspAP/Plugins/PluginInstaller.php" && grep -q "\[.sudo., \$this->helperScriptPath, .install., \$name\]" "$W/src/RaspAP/Plugins/PluginInstaller.php"'
+c "the plugins page shows the 6 plugins as not available" '(cd "$W" && php -r "require \"includes/config.php\"; require \"includes/autoload.php\"; \$p = RaspAP\\Plugins\\PluginInstaller::getInstance(); echo \$p->getHTMLPluginsTable(\$p->getUserPlugins());" 2>&1) | grep -c "disabled" | grep -qx 6'
 c "plugins.js shows the install error as text, not as HTML" 'grep -q "readonly></textarea>.).val(String(errorMessage))" "$W/app/js/ajax/plugins.js" && ! grep -q "+ errorMessage +" "$W/app/js/ajax/plugins.js"'
 c "do_plugin_install.php and plugins.js use only the name" 'grep -q plugin_name "$W/ajax/plugins/do_plugin_install.php" && ! grep -qE "plugin_uri|install_path|plugin_version" "$W/ajax/plugins/do_plugin_install.php" && ! grep -qE "plugin_uri|install_path" "$W/app/js/ajax/plugins.js"'
-out=$(pi DynDNS)
-c "DynDNS (downloaded from the list source): $out" '[ "$out" = true ] && [ -d "$W/plugins/DynDNS" ] && [ -f /etc/sudoers.d/090_DynDNS ]'
+
+echo "== the checks of the helper (a test plugin)"
+cp $P/plugins.json /tmp/plugins.json.real
+mkdir -p $P/available/TestPlugin/conf $P/available/TestPlugin/js
+echo conf > $P/available/TestPlugin/conf/a.conf; echo data > $P/available/TestPlugin/conf/d.json; echo js > $P/available/TestPlugin/js/t.js
+ln -s /etc/shadow $P/available/TestPlugin/conf/link.conf; ln -s /etc $P/available/TestPlugin/etcdir
+chown -R root:root $P/available/TestPlugin
+mkdir -p /opt/ww && printf '#!/bin/sh\n' > /opt/ww/w.sh && chmod 777 /opt/ww/w.sh
+# tp <jq change of the entry>: writes a plugin list with only the test plugin
+base='{"name":"Test Plugin","version":"v1","install_path":"plugins-available","plugin_uri":"https://github.com/x/y/tree/z/plugins-available/TestPlugin","sudoers":["www-data ALL=(ALL) NOPASSWD:/bin/systemctl restart testplugin.service"],"dependencies":{},"configuration":[{"source":"conf/a.conf","destination":"/etc/testplugin/"},{"source":"conf/d.json","destination":"/var/www/html/plugins/TestPlugin-data/d.json"}],"permissions":[{"file":"/etc/testplugin/a.conf","owner":"root","group":"root","mode":"0640"}],"javascript":{"source":"js/t.js"}}'
+tp() { jq -n --argjson e "$base" "{plugins: [\$e | $1]}" > $P/plugins.json; chmod 644 $P/plugins.json; }
+clean() { rm -rf /etc/testplugin /etc/sudoers.d/090_TestPlugin "$W/plugins/TestPlugin" "$W/plugins/TestPlugin-data" "$W/app/js/plugins/t.js"; }
+nothing() { [ ! -e /etc/sudoers.d/090_TestPlugin ] && [ ! -e /etc/testplugin ] && [ ! -L "$W/plugins/TestPlugin" ] && [ ! -e "$W/app/js/plugins/t.js" ] && [ -z "$(ls -A /etc/sudoers.d | grep "^\.plugin")" ]; }
+for change in \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/bin/systemctl * testplugin.service"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/bin/cp /tmp/x.conf /etc/x.conf"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/bin/cat /var/tmp/x"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/tmp/x.sh"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/var/www/html/x.sh"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/opt/ww/w.sh"]' \
+    '.sudoers = ["root ALL=(ALL) NOPASSWD:/bin/true"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:ALL"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/bin/true, /bin/bash"]' \
+    '.sudoers = ["www-data ALL=(ALL) NOPASSWD:/usr/bin/tshark -i wlan0 -w x[1]"]' \
+    '.configuration[0].destination = "/etc/sudoers.d/x"' \
+    '.configuration[0].destination = "/etc/logrotate.d/x"' \
+    '.configuration[0].destination = "/etc/ld.so.preload"' \
+    '.configuration[0].destination = "/usr/local/sbin/raspap-x.sh"' \
+    '.configuration[0].destination = "/etc/testplugin/../sudoers.d/y"' \
+    '.configuration[0].destination = "etc/x.conf"' \
+    '.configuration[0].source = "../../../../etc/shadow"' \
+    '.configuration[0].source = "conf/link.conf"' \
+    '.configuration[0].source = "etcdir/shadow"' \
+    '.permissions[0].owner = "www-data"' \
+    '.permissions[0].mode = "0666"' \
+    '.permissions[0].file = "/etc/passwd"' \
+    '.javascript = {"source": "conf/a.conf"}' \
+    '.dependencies = {"./x.deb": "1"}' \
+    '.keys = [{"key_url": "https://x/k.gpg"}]' \
+    '.dpkgs = ["x.deb"]' \
+    '.user_nonprivileged = {"name": "u", "pass": "p"}' \
+    '.install_path = "plugins"' \
+    '.plugin_uri = "https://github.com/x/y/tree/z/plugins-available/.."'; do
+    clean; tp "$change"
+    out=$(ph install "Test Plugin"); rc=$?
+    c "refused, nothing changed: $change" '[ $rc = 2 ] && nothing'
+done
+clean; tp '.'
+out=$(ph install "Test Plugin"); rc=$?
+c "a good entry: rules root 440, config root, plugin data www-data, JavaScript, link (rc $rc)" '[ $rc = 0 ] && [ "$(stat -c %U:%a /etc/sudoers.d/090_TestPlugin)" = root:440 ] && [ "$(stat -c %U:%G:%a /etc/testplugin/a.conf)" = root:root:640 ] && [ "$(stat -c %U "$W/plugins/TestPlugin-data/d.json")" = www-data ] && [ "$(stat -c %U:%a "$W/app/js/plugins/t.js")" = www-data:644 ] && [ "$(readlink "$W/plugins/TestPlugin")" = "$W/plugins-available/TestPlugin" ]'
+clean; echo file > /etc/testblock; tp '.configuration[0].destination = "/etc/testblock/a.conf" | .permissions = []'
+out=$(ph install "Test Plugin"); rc=$?
+c "a failed step removes the earlier changes (rc $rc)" '[ $rc != 0 ] && nothing && [ ! -e "$W/plugins/TestPlugin-data" -o -z "$(ls -A "$W/plugins/TestPlugin-data" 2>/dev/null)" ]'
+rm -f /etc/testblock; clean
+chown www-data $P/plugins.json; tp '.'; chown www-data $P/plugins.json
+out=$(ph install "Test Plugin"); rc=$?
+c "a plugin list that root does not own is refused (rc $rc)" '[ $rc = 1 ] && nothing'
+cp /tmp/plugins.json.real $P/plugins.json; chown root:root $P/plugins.json; chmod 644 $P/plugins.json
+rm -rf $P/available/TestPlugin
 
 echo "== migration of the old Firewall plugin (common.sh)"
 rm -rf "$W/plugins/Firewall" /etc/sudoers.d/090_Firewall "$W/app/js/plugins/Firewall.js"

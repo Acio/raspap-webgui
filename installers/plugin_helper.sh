@@ -1,35 +1,63 @@
 #!/bin/bash
 #
-# PluginInstaller helper for RaspAP 
-# @author billz
-# license: GNU General Public License v3.0
+# RaspAP plugin helper (hardened fork)
+#
+# Description: Installs a plugin of the plugin list. www-data runs this
+# script with sudo and gives only the name of the plugin. Everything else
+# comes from root-owned copies that the installer makes:
+# - /etc/raspap/plugins/plugins.json, the plugin list of the release: the
+#   sudo rules, packages, configuration files, permissions and JavaScript;
+# - /etc/raspap/plugins/available/<plugin>, the bundled plugin files.
+# The script checks the complete entry first. Only then does it change the
+# system, and a failed step removes the changes of the earlier steps.
+# Installed as /etc/raspap/plugins/plugin_helper.sh.
+# License: GNU General Public License v3.0
+#
+# You are not obligated to bundle the LICENSE file with your RaspAP projects as long
+# as you leave these references intact in the header comments of your source files.
+#
+# Usage: plugin_helper.sh install <name>   the name of the plugin list, for example "NTP Server"
+#
+# Exit status: 0 installed, 1 system error, 2 refused, 3 already installed
 
-# Exit on error
 set -o errexit
+set -o nounset
 set -o pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 readonly raspap_user="www-data"
 readonly webroot_dir="/var/www/html"
+readonly plugins_dir="/etc/raspap/plugins"
+readonly list="$plugins_dir/plugins.json"
+readonly available="$plugins_dir/available"
 
-# The hardened fork: a plugin must not replace or change the files of RaspAP
-# and of the system. These paths are refused for "config" and "permissions".
+# A plugin must not change the files of RaspAP and of the system
 readonly protected_paths=(
     /bin /boot /dev /etc/sudoers /etc/sudoers.d /etc/passwd /etc/shadow
     /etc/group /etc/gshadow /etc/systemd /etc/udev /etc/iptables /etc/nftables.conf
     /etc/wireguard /etc/openvpn /etc/hostapd /etc/dnsmasq.conf /etc/dnsmasq.d
     /etc/dhcpcd.conf /etc/wpa_supplicant /etc/NetworkManager /etc/network
-    /etc/lighttpd /etc/php /etc/apt /etc/cron.d /etc/crontab /etc/ssh
-    /etc/raspap /lib /lib64 /proc /root /run /sbin /sys /usr /var/lib
-    "$webroot_dir"
+    /etc/lighttpd /etc/php /etc/apt /etc/cron.d /etc/cron.hourly /etc/cron.daily
+    /etc/cron.weekly /etc/cron.monthly /etc/crontab /etc/ssh /etc/logrotate.d
+    /etc/logrotate.conf /etc/ld.so.preload /etc/ld.so.conf /etc/ld.so.conf.d
+    /etc/pam.d /etc/profile /etc/profile.d /etc/bash.bashrc /etc/environment
+    /etc/default /etc/init.d /etc/rc.local /etc/modprobe.d /etc/modules-load.d
+    /etc/security /etc/polkit-1 /etc/dbus-1 /etc/raspap /lib /lib64 /proc /root
+    /run /sbin /sys /usr /var/lib /var/spool "$webroot_dir"
 )
 # Exceptions in the protected paths: plugin data in the web root
-readonly allowed_paths=(
-    "$webroot_dir/plugins" "$webroot_dir/app/js/plugins" "$webroot_dir/config"
-)
+readonly webroot_data=("$webroot_dir/plugins" "$webroot_dir/app/js/plugins" "$webroot_dir/config")
+# www-data can write in these directories
+readonly writable_dirs=(/tmp /var/tmp /dev/shm /run/user /home "$webroot_dir" /etc/raspap)
 
-# Prints the absolute path of $1 without symlinks (also when it does not exist)
-real_path() {
-    realpath -m -- "$1"
+die() {
+    echo "Error: $2" >&2
+    exit "$1"
+}
+
+usage() {
+    echo "Usage: $0 install <name>" >&2
+    exit 2
 }
 
 # Returns 0 when $1 is equal to or below one of the following paths
@@ -44,288 +72,172 @@ below() {
     return 1
 }
 
-# Refuses a destination that belongs to RaspAP or to the system
+# A sudo rule of a plugin: for www-data, one command, a program that www-data
+# can not change, and arguments without wildcards and temporary directories
+check_rule() {
+    local rule="$1" cmd prog args
+    [[ "$rule" =~ ^www-data\ ALL=\(ALL\)\ NOPASSWD:(/[^,]+)$ ]] || die 2 "refused sudo rule (format): $rule"
+    cmd="${BASH_REMATCH[1]}"
+    prog="${cmd%% *}"
+    args=""
+    [ "$prog" = "$cmd" ] || args="${cmd#* }"
+    [[ "$prog" =~ ^/[A-Za-z0-9_./-]+$ ]] || die 2 "refused sudo rule (program): $rule"
+    if below "$(realpath -m -- "$prog")" "${writable_dirs[@]}"; then
+        die 2 "refused sudo rule (www-data can change $prog): $rule"
+    fi
+    if [ -e "$prog" ] && { [ "$(stat -L -c %u "$prog")" != 0 ] || [ -n "$(find -L "$prog" -maxdepth 0 -perm /022)" ]; }; then
+        die 2 "refused sudo rule (other users can change $prog): $rule"
+    fi
+    if [[ "$args" == *[\*\?\[\]\\!\"\'\$\`]* ]]; then
+        die 2 "refused sudo rule (wildcard or special character): $rule"
+    fi
+    if [[ " $args" =~ [[:space:]]/(tmp|var/tmp|dev/shm|run/user)(/|[[:space:]]|$) ]]; then
+        die 2 "refused sudo rule (temporary directory): $rule"
+    fi
+}
+
+# A destination of a configuration file: absolute, and not a file of RaspAP
+# or of the system (plugin data in the web root is allowed)
 check_destination() {
     local dest
-    dest="$(real_path "$1")"
-    if below "$dest" "${allowed_paths[@]}"; then
-        return 0
-    fi
+    dest="$(realpath -m -- "$1")"
+    [[ "$1" == /* ]] || die 2 "refused destination (not absolute): $1"
+    below "$dest" "${webroot_data[@]}" && return 0
     if [ "$dest" = / ] || below "$dest" "${protected_paths[@]}"; then
-        echo "Error: a plugin can not change $dest." >&2
-        exit 1
+        die 2 "refused destination (protected): $1"
     fi
 }
 
-# Checks the rules of a plugin sudoers file. Each rule is for www-data, and the
-# command must be a program that www-data can not change.
-check_sudoers() {
-    local file="$1" line cmds cmd path
-    while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
-        if [[ ! "$line" =~ ^www-data\ ALL=\(ALL\)\ NOPASSWD:(.+)$ ]]; then
-            echo "Error: only rules for www-data are allowed: $line" >&2
-            return 1
-        fi
-        cmds="${BASH_REMATCH[1]}"
-        IFS=',' read -r -a cmd <<< "$cmds"
-        for path in "${cmd[@]}"; do
-            path="${path#"${path%%[![:space:]]*}"}"
-            path="${path%% *}"
-            if [[ "$path" != /* ]] || [ "$path" = ALL ]; then
-                echo "Error: the command must be an absolute path: $path" >&2
-                return 1
-            fi
-            # www-data can write in these directories
-            if below "$(real_path "$path")" /tmp /var/tmp /dev/shm /run/user /home "$webroot_dir" /etc/raspap; then
-                echo "Error: www-data can change the command $path." >&2
-                return 1
-            fi
-            # the program can be installed later (dependencies), but when it
-            # exists, it must belong to root and not be writable by others
-            if [ -e "$path" ]; then
-                if [ "$(stat -L -c %u "$path")" != 0 ] || [ -n "$(find -L "$path" -maxdepth 0 -perm /022)" ]; then
-                    echo "Error: www-data or other users can change the command $path." >&2
-                    return 1
-                fi
-            fi
-        done
-    done < "$file"
+# A file of the plugin, relative to the plugin directory: no "..", a regular
+# file, not a link
+plugin_file() {
+    local rel="$1"
+    [[ "$rel" =~ ^[A-Za-z0-9_][A-Za-z0-9_./@-]*$ ]] && [[ "/$rel/" != */../* ]] || die 2 "refused plugin file name: $rel"
+    [ -f "$src/$rel" ] && [ ! -L "$src/$rel" ] || die 2 "the plugin has no file $rel"
+    # also no linked directory on the way out of the plugin
+    [[ "$(realpath -- "$src/$rel")" == "$(realpath -- "$src")"/* ]] || die 2 "refused plugin file (outside the plugin): $rel"
 }
 
-[ $# -lt 1 ] && { echo "Usage: $0 <action> [parameters...]"; exit 1; }
+[ "$#" -eq 2 ] && [ "$1" = install ] || usage
+name="$2"
+[ "$(id -u)" = 0 ] || die 1 "run this script as root"
+command -v jq > /dev/null || die 1 "jq is missing"
 
-action="$1"  # action to perform
-shift 1      
+# the root-owned plugin list of the release
+[ -f "$list" ] && [ ! -L "$list" ] && [ "$(stat -c %u "$list")" = 0 ] &&
+    [ -z "$(find "$list" -perm /022)" ] || die 1 "$list is missing or not owned by root"
+entry=$(jq -c --arg n "$name" '[(.plugins // .)[] | select(.name == $n)] | first // empty' "$list") ||
+    die 1 "unable to read $list"
+[ -n "$entry" ] || die 2 "the plugin is not in the plugin list: $name"
+field() { jq -r "$1" <<< "$entry"; }
 
-case "$action" in
+reason=$(field '.unavailable // empty')
+[ -z "$reason" ] || die 2 "$name is not available in the hardened fork: $reason"
+[ "$(field '.install_path // empty')" = plugins-available ] ||
+    die 2 "$name: the hardened fork installs only bundled plugins"
+for key in keys dpkgs user_nonprivileged; do
+    [ "$(field "(.$key // []) | length")" = 0 ] || die 2 "$name: \"$key\" is not supported in the hardened fork"
+done
 
-  "sudoers")
-    [ $# -ne 1 ] && { echo "Usage: $0 sudoers <file>"; exit 1; }
-    file="$1"
-    plugin_name=$(basename "$file")
-    # PluginInstaller writes /tmp/090_<plugin name>. 090_raspap is the file of RaspAP.
-    if [ "$(dirname "$file")" != /tmp ] || [ -L "$file" ] || [ ! -f "$file" ] ||
-        [[ ! "$plugin_name" =~ ^090_[A-Za-z0-9_-]{1,64}$ ]] || [ "${plugin_name,,}" = 090_raspap ]; then
-        echo "Error: invalid sudoers file $file."
-        exit 1
+dir=$(basename "$(field '.plugin_uri // empty')")
+[[ "$dir" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "$name: invalid plugin directory"
+plugin_name="${name// /}"
+[[ "$plugin_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "invalid plugin name: $name"
+src="$available/$dir"
+[ -d "$src" ] && [ ! -L "$src" ] && [ "$(stat -c %u "$src")" = 0 ] || die 1 "$src is missing or not owned by root"
+target="$webroot_dir/plugins/$dir"
+if [ -e "$target" ] || [ -L "$target" ]; then
+    echo "$name is already installed" >&2
+    exit 3
+fi
+
+# 1. check the complete entry
+mapfile -t rules < <(field '.sudoers[]?')
+for rule in "${rules[@]}"; do
+    check_rule "$rule"
+done
+mapfile -t packages < <(field '(.dependencies // {}) | keys[]')
+for package in "${packages[@]}"; do
+    [[ "$package" =~ ^[a-z0-9][a-z0-9+.-]{1,63}$ ]] || die 2 "refused package name: $package"
+done
+config_src=() config_dest=()
+while IFS=$'\t' read -r s d; do
+    [ -n "$s" ] || continue
+    plugin_file "$s"
+    [[ "$d" == */ ]] && d="$d$(basename "$s")"
+    check_destination "$d"
+    if [ -L "$d" ] || [ -d "$d" ]; then
+        die 2 "refused destination (a link or a directory): $d"
     fi
-    dest="/etc/sudoers.d/${plugin_name}"
+    config_src+=("$s")
+    config_dest+=("$d")
+done < <(field '.configuration[]? | [.source, .destination] | @tsv')
+perm_file=() perm_owner=() perm_group=() perm_mode=()
+while IFS=$'\t' read -r f o g m; do
+    [ -n "$f" ] || continue
+    printf '%s\n' "${config_dest[@]}" | grep -qxF -- "$f" || die 2 "refused permissions: $f is not a configuration file of the plugin"
+    [[ "$o" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$g" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$m" =~ ^0?[0-7]{3}$ ]] ||
+        die 2 "refused permissions: invalid owner, group or mode for $f"
+    if ! below "$(realpath -m -- "$f")" "${webroot_data[@]}" && { [ "$o" != root ] || [ "$g" != root ] || [ $((8#$m & 8#022)) != 0 ]; }; then
+        die 2 "refused permissions: a file outside the web root must belong to root and not be writable by others: $f"
+    fi
+    perm_file+=("$f") perm_owner+=("$o") perm_group+=("$g") perm_mode+=("$m")
+done < <(field '.permissions[]? | [.file, .owner, .group, .mode] | @tsv')
+mapfile -t scripts < <(field '.javascript | if type == "object" then .source elif type == "array" then .[] elif type == "string" then . else empty end')
+for js in "${scripts[@]}"; do
+    plugin_file "$js"
+    [[ "$js" == *.js ]] || die 2 "refused JavaScript file: $js"
+done
 
-    # check a private copy, so that the file can not change after the checks
-    tmp=$(mktemp /etc/sudoers.d/.plugin.XXXXXX) || { echo "Error: Failed to create a temporary file."; exit 1; }
-    trap 'rm -f "$tmp"' EXIT
-    cat -- "$file" > "$tmp"
-    rm -f -- "$file"
+# 2. install. A failed step removes the changes of the earlier steps.
+undo=()
+rollback() {
+    local i
+    for ((i = ${#undo[@]} - 1; i >= 0; i--)); do
+        rm -f -- "${undo[$i]}"
+    done
+}
+trap 'rc=$?; [ "$rc" = 0 ] || rollback; exit $rc' EXIT
+
+if [ "${#rules[@]}" -gt 0 ]; then
+    rules_file="/etc/sudoers.d/090_$plugin_name"
+    tmp=$(mktemp /etc/sudoers.d/.plugin.XXXXXX)
+    undo+=("$tmp")
+    printf '%s\n' "${rules[@]}" > "$tmp"
     chown root:root "$tmp"
     chmod 0440 "$tmp"
-    check_sudoers "$tmp" || { echo "Error: the sudoers rules of the plugin are refused."; exit 1; }
-    visudo -cqf "$tmp" || { echo "Error: invalid sudoers file."; exit 1; }
-    mv -f "$tmp" "$dest" || { echo "Error: Failed to move $file to $dest."; exit 1; }
-
-    echo "OK"
-    ;;
-
-  "packages")
-    [ $# -lt 1 ] && { echo "Usage: $0 packages <apt_packages...>"; exit 1; }
-
-    for package in "$@"; do
-      apt-get install -y "$package" || { echo "Error: Failed to install $package."; exit 1; }
-    done
-    echo "OK"
-    ;;
-
-  "deb")
-    [ $# -lt 1 ] && { echo "Usage: $0 deb <deb_file>"; exit 1; }
-    deb_file="$1"
-
-    if [ ! -f "$deb_file" ]; then
-        echo "Error: File not found: $deb_file"
-        exit 1
-    fi
-
-    echo "Installing .deb package: $deb_file"
-    dpkg -i "$deb_file"
-
-    echo "OK"
-    ;;
-
-  "user")
-    [ $# -lt 2 ] && { echo "Usage: $0 user <username> <password>."; exit 1; }
-
-    username=$1
-    password=$2
-
-    if id "$username" &>/dev/null; then # user already exists
-        echo "OK"
-        exit 0
-    fi
-    # create the user without shell access
-    useradd -r -s /bin/false "$username"
-
-    # set password non-interactively
-    echo "$username:$password" | chpasswd
-
-    echo "OK"
-    ;;
-
-  "config")
-    [ $# -lt 2 ] && { echo "Usage: $0 config <source> <destination>"; exit 1; }
-
-    source=$1
-    destination=$2
-
-    if [ ! -f "$source" ]; then
-        echo "Source file $source does not exist."
-        exit 1
-    fi
-    # a destination that ends with / is a directory
-    if [[ "$destination" == */ ]] || [ -d "$destination" ]; then
-        destination="${destination%/}/$(basename "$source")"
-    fi
-    check_destination "$destination"
-    if [ -L "$destination" ] || [ -d "$destination" ]; then
-        echo "Error: $destination is a link or a directory."
-        exit 1
-    fi
-
-    mkdir -p "$(dirname "$destination")"
-    # files outside the web root belong to root: the plugins change them with
-    # sudo. Only the plugin data in the web root belongs to www-data.
-    if below "$(real_path "$destination")" "${allowed_paths[@]}"; then
-        install -o "$raspap_user" -g "$raspap_user" -m 644 "$source" "$destination"
+    visudo -cqf "$tmp" || die 2 "visudo refused the sudo rules of $name"
+    mv -f "$tmp" "$rules_file"
+    undo+=("$rules_file")
+fi
+if [ "${#packages[@]}" -gt 0 ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -- "${packages[@]}" >&2 ||
+        die 1 "unable to install the packages of $name"
+fi
+for i in "${!config_src[@]}"; do
+    d="${config_dest[$i]}"
+    [ -e "$d" ] || undo+=("$d")
+    mkdir -p -- "$(dirname "$d")"
+    if below "$(realpath -m -- "$d")" "${webroot_data[@]}"; then
+        install -o "$raspap_user" -g "$raspap_user" -m 644 -- "$src/${config_src[$i]}" "$d"
     else
-        install -o root -g root -m 644 "$source" "$destination"
+        install -o root -g root -m 644 -- "$src/${config_src[$i]}" "$d"
     fi
+done
+for i in "${!perm_file[@]}"; do
+    chown "${perm_owner[$i]}:${perm_group[$i]}" -- "${perm_file[$i]}"
+    chmod "${perm_mode[$i]}" -- "${perm_file[$i]}"
+done
+if [ "${#scripts[@]}" -gt 0 ]; then
+    install -d -o "$raspap_user" -g "$raspap_user" -m 755 "$webroot_dir/app/js/plugins"
+fi
+for js in "${scripts[@]}"; do
+    d="$webroot_dir/app/js/plugins/$(basename "$js")"
+    [ -e "$d" ] || undo+=("$d")
+    install -o "$raspap_user" -g "$raspap_user" -m 644 -- "$src/$js" "$d"
+done
+ln -s -- "$webroot_dir/plugins-available/$dir" "$target"
+undo+=("$target")
+chown -h "$raspap_user:$raspap_user" "$target"
 
-    echo "OK"
-    ;;
-
-  "permissions")
-    [ $# -lt 4 ] && { echo "Usage: $0 permissions <filepath> <user> <group> <mode>"; exit 1; }
-
-    filepath="$1"
-    user="$2"
-    group="$3"
-    mode="$4"
-
-    if [ ! -e "$filepath" ]; then
-        echo "File not found: $filepath" >&2
-        exit 1
-    fi
-    check_destination "$filepath"
-    if [ -L "$filepath" ]; then
-        echo "Error: $filepath is a link." >&2
-        exit 1
-    fi
-    if ! [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$group" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$mode" =~ ^0?[0-7]{3}$ ]]; then
-        echo "Error: invalid owner, group or mode." >&2
-        exit 1
-    fi
-
-    chown "$user:$group" "$filepath" || exit 1
-    chmod "$mode" "$filepath" || exit 1
-
-    echo "OK"
-    ;;
-
-  "javascript")
-    [ $# -lt 2 ] && { echo "Usage: $0 javascript <source> <destination>"; exit 1; }
-
-    source=$1
-    destination=$2
-
-    if [ ! -f "$source" ]; then
-        echo "Source file $source does not exist."
-        exit 1
-    fi
-
-    if [ "$(real_path "$destination")" != "$webroot_dir/app/js/plugins" ]; then
-        echo "Error: invalid JavaScript destination $destination."
-        exit 1
-    fi
-    if [ ! -d "$destination" ]; then
-        mkdir -p "$destination"
-    fi
-
-    install -o "$raspap_user" -g "$raspap_user" -m 644 "$source" "$destination/$(basename "$source")"
-
-    echo "OK"
-    ;;
-
-
-  "plugin")
-    [ $# -lt 2 ] && { echo "Usage: $0 plugin <source> <destination>"; exit 1; }
-
-    source=$1
-    destination=$2
-
-    if [ ! -d "$source" ]; then
-        echo "Source directory $source does not exist."
-        exit 1
-    fi
-
-    plugin_dir=$(dirname "$destination")
-    if [ "$(real_path "$plugin_dir")" != "$webroot_dir/plugins" ] ||
-        [[ ! "$(basename "$destination")" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || [ -e "$destination" ]; then
-        echo "Error: invalid plugin destination $destination."
-        exit 1
-    fi
-    if [ ! -d "$plugin_dir" ]; then
-        mkdir -p "$plugin_dir"
-    fi
-
-    cp -R "$source" "$destination"
-    chown -R $raspap_user:$raspap_user "$destination"
-
-    echo "OK"
-    ;;
-
-  "keys")
-    [ $# -ne 4 ] && { echo "Usage: $0 keys <key_url> <keyring> <repo> <sources>"; exit 1; }
-
-    key_url="$1"
-    keyring="$2"
-    repo="$3"
-    list_file="$4"
-
-    # add repository GPG key if it doesn't already exist (a 0-byte file counts as missing,
-    # since that's what a failed download leaves behind)
-    if [ ! -s "$keyring" ]; then
-        echo "Downloading GPG key from $key_url..."
-        curl -fsSL "$key_url" | sudo tee "$keyring" > /dev/null || { echo "Error: Failed to download GPG key."; sudo rm -f "$keyring"; exit 1; }
-    else
-        echo "Repository GPG key already exists at $keyring"
-    fi
-
-    # add repository list if not present
-    if [ ! -s "$list_file" ]; then
-        echo "Adding repository $repo to sources list"
-        curl -fsSL "$repo" | sudo tee "$list_file" > /dev/null || { echo "Error: Failed to add repository to sources list."; sudo rm -f "$list_file"; exit 1; }
-        update_required=1
-    else
-        echo "Repository already exists in sources list"
-    fi
-
-    # update apt package list if required
-    if [ "$update_required" == "1" ]; then
-        sudo apt-get update || { echo "Error: Failed to update apt"; exit 1; }
-    fi
-
-    echo "OK"
-    ;;
-
-  *)
-    echo "Invalid action: $action"
-    echo "Usage: $0 <action> [parameters...]"
-    echo "Actions:"
-    echo "  sudoers <file>                              Install a sudoers file"
-    echo "  packages <packages>                         Install aptitude package(s)"
-    echo "  user <name> <password>                      Add user non-interactively"
-    echo "  config <source <destination>                Applies a config file"
-    echo "  javascript <source> <destination>           Applies a JavaScript file"
-    echo "  plugin <source> <destination>               Copies a plugin directory"
-    echo "  keys <key_url> <keyring> <repo> <sources>   Installs a GPG key for a third-party repo"
-    exit 1
-    ;;
-esac
+echo "OK"
