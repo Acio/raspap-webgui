@@ -37,6 +37,7 @@ import { initAbout_ajax } from "./ajax/about.js";
 import { initClock_ajax } from "./ajax/clock.js";
 import { initCaptivePortal_ajax } from "./ajax/captiveportal.js";
 import { initUplinkWatchdog_ajax } from "./ajax/uplinkwatchdog.js";
+import { initChannelOverlap_ajax } from "./ajax/channeloverlap.js";
 
 document.addEventListener('DOMContentLoaded', () => {
     console.info("RaspAP app.js initialized");
@@ -114,6 +115,10 @@ document.addEventListener('DOMContentLoaded', () => {
     globalThis.disableValidation = disableValidation;
     // public IP on the OpenVPN, WireGuard and VPN provider pages
     initPublicIP_ajax();
+    // warn when the hotspot channel overlaps the channel of the wireless uplink
+    if (['/', '/dashboard', '/hostapd_conf', '/wpa_conf', '/network_conf'].includes(path)) {
+        initChannelOverlap_ajax();
+    }
 
     // Enable Bootstrap tooltips
     $('[data-bs-toggle="tooltip"]').tooltip()

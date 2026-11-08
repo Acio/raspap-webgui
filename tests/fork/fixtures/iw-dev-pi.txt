@@ -1,0 +1,26 @@
+phy#5
+	Interface wlan1
+		ifindex 8
+		wdev 0x500000001
+		addr 02:00:00:00:00:01
+		ssid Hotspot
+		type AP
+		channel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz
+		txpower 13.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+			0	0	10	0	0	0	0	113271		313
+phy#0
+	Unnamed/non-netdev interface
+		wdev 0x2
+		addr 02:00:00:00:00:01
+		type P2P-device
+		txpower 31.00 dBm
+	Interface wlan0
+		ifindex 3
+		wdev 0x1
+		addr 02:00:00:00:00:01
+		ssid Uplink
+		type managed
+		channel 48 (5240 MHz), width: 80 MHz, center1: 5210 MHz
+		txpower 31.00 dBm
