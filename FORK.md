@@ -31,6 +31,9 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 | Plugin helper | `plugin_helper.sh` refuses protected paths and unsafe sudo rules. | `e95ec97c` | plugins |
 | Units | The units of RaspAP belong to root. The network monitor runs without root. | `0d51f2db` | hardening |
 | Downloads | isoquery and mkcert have a SHA256 pin. | `0d51f2db` | hardening |
+| Security headers | Each PHP page and ajax answer sends `X-Frame-Options: DENY`, a CSP against frames, `nosniff`, `Referrer-Policy: same-origin` and `Cache-Control: no-store` (`includes/session.php`). | `c06a668d` | hardening |
+| Idle timeout | The server ends a session after `RASPI_SESSION_TIMEOUT` seconds without a page. A page goes to the login, an ajax request gets 401 and `session.js` shows the expired window. `login()` resets the idle time. | `c06a668d` | hardening |
+| Error page | All users see a reference of the log line. Only the admin user sees the message and the trace (escaped). No X-Debug headers. `login()` saves the role. Fatal errors also get the page. | `c06a668d` | hardening |
 | Web libraries | jQuery 3.7.1, DataTables 1.13.11 and Chart.js 2.9.4 in `dist/`. `package.json` lists the libraries in `dist/`, without a build. | `cc338d4c`, `cf3a041c` | static |
 | Tests and CI | `tests/fork`, Fork CI, the release check and Dependabot. | `15c79397`, `e46e0754` | all |
 | README | The fork notice and how to install the fork. | `7e66a338`, `72dd5875` | none |
