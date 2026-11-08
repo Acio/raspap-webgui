@@ -102,6 +102,16 @@ sess act2 1300 admin; get act2 fork_page.php
 c "a session below RASPI_SESSION_TIMEOUT stays" 'grep -qx "page ok" /tmp/b.txt'
 curl -s -D /tmp/h.txt -o /dev/null -b "PHPSESSID=chosenbyanother0000000000000001" "http://127.0.0.1:8099/fork_page.php"
 c "strict mode: an unknown session id is not used, PHP makes a new one" 'grep -qi "^Set-Cookie: PHPSESSID=" /tmp/h.txt && ! grep -qi "^Set-Cookie: PHPSESSID=chosenbyanother" /tmp/h.txt && [ ! -e $SD/sess_chosenbyanother0000000000000001 ]'
+# old <id> <login age> <idle seconds>: a session with a login time
+old() { printf 'user_id|s:5:"admin";user_role|s:5:"admin";loginTime|i:%d;lastActivity|i:%d;' $(($(date +%s) - $2)) $(($(date +%s) - $3)) > $SD/sess_$1; chown www-data $SD/sess_$1; chmod 600 $SD/sess_$1; }
+old age1 30000 10; get age1 fork_page.php
+c "absolute timeout: a login of more than 8 hours goes to the login, also when active" 'grep -q "^HTTP/1.1 302" /tmp/h.txt && hdr "Location: /login" && ! grep -q user_id $SD/sess_age1 2>/dev/null'
+old age2 30000 10; get age2 ajax/session/do_check_session.php
+c "absolute timeout: ajax gets 401 session_expired" 'grep -q "^HTTP/1.1 401" /tmp/h.txt'
+old age3 3600 10; get age3 fork_page.php
+c "a login of 1 hour stays" 'grep -qx "page ok" /tmp/b.txt'
+sess nolt 10 admin; get nolt fork_page.php
+c "a session without a login time stays, and gets one" 'grep -qx "page ok" /tmp/b.txt && grep -q "loginTime|i:" $SD/sess_nolt'
 c "session.js shows the expired window on 401" 'grep -q "jqXHR.status === 401" "$S/app/js/ajax/session.js"'
 
 get none fork_page.php?early=1
@@ -125,6 +135,9 @@ out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "incl
     $r .= ($a->login("admin", "secret", "admin") ? "L" : "-") . ($a->isAdmin() ? "A" : "-") . ($a->isIdle() ? "I" : "-");
     echo $r;' 2>&1)
 c "login() saves the admin role and resets the idle time" '[ "$out" = "--LA-" ]'
+out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "includes/config.php"; require "includes/autoload.php"; session_start();
+    $a = new \RaspAP\Auth\HTTPAuth; $a->login("admin", "secret", "admin"); echo (time() - $_SESSION["loginTime"] < 5 ? "T" : "-"), ($a->isTooOld() ? "O" : "-");' 2>&1)
+c "login() saves the login time" '[ "$out" = "T-" ]'
 
 
 echo "== DHCP form (DnsmasqManager::validate)"

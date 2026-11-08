@@ -4,8 +4,9 @@ if (RASPI_AUTH_ENABLED) {
     $auth = new \RaspAP\Auth\HTTPAuth;
 
     // Hardened fork: the server ends a session that was idle for
-    // RASPI_SESSION_TIMEOUT seconds. Before, only the JavaScript did this.
-    if ($auth->isLogged() && $auth->isIdle()) {
+    // RASPI_SESSION_TIMEOUT seconds, or that is older than
+    // RASPI_SESSION_MAX_AGE seconds. Before, only the JavaScript did this.
+    if ($auth->isLogged() && ($auth->isIdle() || $auth->isTooOld())) {
         if (strpos($_SERVER['SCRIPT_NAME'] ?? '', '/ajax/') !== false) {
             session_unset();
             session_destroy();

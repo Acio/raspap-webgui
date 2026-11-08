@@ -71,6 +71,25 @@ class HTTPAuth
     }
 
     /*
+     * Hardened fork: determines if the login is older than
+     * RASPI_SESSION_MAX_AGE seconds (default 8 hours), also when the session
+     * was used all the time. A session from before the login time was saved
+     * gets the current time.
+     * return boolean
+     */
+    public function isTooOld(): bool
+    {
+        $max = defined('RASPI_SESSION_MAX_AGE') ? (int)RASPI_SESSION_MAX_AGE : 28800;
+        if ($max <= 0) {
+            return false;
+        }
+        if (!isset($_SESSION['loginTime'])) {
+            $_SESSION['loginTime'] = time();
+        }
+        return time() - (int)$_SESSION['loginTime'] >= $max;
+    }
+
+    /*
      * Authenticate a user using HTTP basic auth
      */
     public function authenticate()
@@ -114,6 +133,7 @@ class HTTPAuth
             // hardened fork: the role for isAdmin(), and the idle time starts now
             $_SESSION['user_role'] = $role === 'admin' ? 'admin' : 'limited';
             $_SESSION['lastActivity'] = time();
+            $_SESSION['loginTime'] = time();
             return true;
         }
         return false;
