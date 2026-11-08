@@ -90,7 +90,7 @@ c "update ran (rc $rc)" '[ $rc = 0 ]'
 c "backup made, mode 600" '[ -n "$b" ] && [ "$(stat -c %a "$b")" = 600 ]'
 c "backup has the old files and the old config.php" 'tar -tzf "$b" | grep -qx var/www/html/old-marker.txt && tar -xzf "$b" -O var/www/html/includes/config.php | grep -q "RASPI_WIREGUARD_ENABLED., true"'
 c "new web root installed" '[ ! -e "$W/old-marker.txt" ] && [ -f "$W/includes/defaults.php" ]'
-c "the web root and its installers belong to root until the last step" '[ "$(stat -c %U "$W")" = root ] && [ "$(stat -c %U "$W/installers")" = root ] && [ "$(stat -c %U "$W/installers/common.sh")" = root ]'
+c "the web root and its installers belong to root until the last step, web root mode 755" '[ "$(stat -c %U:%a "$W")" = root:755 ] && [ "$(stat -c %U "$W/installers")" = root ] && [ "$(stat -c %U "$W/installers/common.sh")" = root ]'
 c "the clone is in a private directory, not /tmp/raspap-webgui" '[ -d /tmp/raspap-webgui/trap ]'
 c "config.php of the device kept, raspap.auth kept" 'grep -q "RASPI_WIREGUARD_ENABLED., true" "$W/includes/config.php" && [ -f "$raspap_dir/raspap.auth" ]'
 c "update check of the device now uses the fork" 'grep -q "^define(.RASPI_API_ENDPOINT., .https://api.github.com/repos/Acio/raspap-webgui/releases/latest.);" "$W/includes/config.php" && [ "$(grep -c RASPI_API_ENDPOINT "$W/includes/config.php")" = 1 ]'
@@ -104,6 +104,21 @@ rm -rf "$W"; tar -xzf "$b" -C /
 c "restore with tar -xzf <file> -C / gives the old web root" 'grep -q "OLD 1" "$W/old-marker.txt" && grep -q "RaspAP/raspap-webgui/releases" "$W/includes/config.php"'
 for i in 2 3 4 5; do sleep 1; old $i; run; done
 c "only the 3 newest backups stay" '[ "$(ls /var/backups/raspap-webroot-*.tar.gz | wc -l)" = 3 ] && tar -xzf "$(ls -1t /var/backups/raspap-webroot-*.tar.gz | head -1)" -O var/www/html/old-marker.txt | grep -q "OLD 5"'
+echo "== the update replaces the running raspbian.sh with a new file"
+mkdir -p /etc/raspap/system /tmp/wr/installers
+# the old loader sleeps, then bash reads its next line from the same offset
+printf '#!/bin/bash\nsleep 2\necho old-end\n' > /tmp/old-loader.sh
+printf '#!/bin/bash\nsleep 2\necho NEW-LINE-RAN-AS-ROOT\necho new-end\n' > /tmp/wr/installers/raspbian.sh
+replace_loader() {
+    (webroot_dir=/tmp/wr raspap_dir=/etc/raspap; _install_log() { :; }; _install_status() { echo "STATUS $*"; }
+     eval "$(sed -n '/Copying RaspAP install loader/,/Unable to move application update script/p' "$S/installers/common.sh")")
+}
+install -m 750 /tmp/old-loader.sh /etc/raspap/system/raspbian.sh
+(bash /etc/raspap/system/raspbian.sh > /tmp/loader.out 2>&1 &) ; sleep 0.5; replace_loader; sleep 2.5
+c "the running loader ends with its own lines, the new file is installed" '[ "$(cat /tmp/loader.out)" = old-end ] && cmp -s /tmp/wr/installers/raspbian.sh /etc/raspap/system/raspbian.sh && [ "$(stat -c %U:%a /etc/raspap/system/raspbian.sh)" = root:750 ] && [ ! -e /etc/raspap/system/.raspbian.sh.new ]'
+install -m 750 /tmp/old-loader.sh /etc/raspap/system/raspbian.sh
+(bash /etc/raspap/system/raspbian.sh > /tmp/loader.out 2>&1 &) ; sleep 0.5; cp /tmp/wr/installers/raspbian.sh /etc/raspap/system/raspbian.sh; sleep 2.5
+c "control: cp over the running loader runs a line of the new file" 'grep -q NEW-LINE-RAN-AS-ROOT /tmp/loader.out'
 old 6; mv /var/backups /var/backups.ok; touch /var/backups
 run; rc=$?
 c "failed backup: the update stops (rc $rc), the old web root stays" '[ $rc != 0 ] && grep -q "OLD 6" "$W/old-marker.txt"'

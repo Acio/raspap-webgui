@@ -1101,6 +1101,8 @@ function _download_latest_files() {
 
     _install_log "Installing application to $webroot_dir"
     sudo rsync -av $exclude "$source_dir"/ "$webroot_dir"/ >/dev/null 2>&1 || _install_status 1 "Unable to install files to $webroot_dir"
+    # rsync -a copies the mode 700 of the private clone directory
+    sudo chmod 755 "$webroot_dir" || _install_status 1 "Unable to change the mode of $webroot_dir"
 
     # Restore user plugins after rsync. Symlinks too: a bundled plugin is a
     # symlink to plugins-available. Not the files of the plugins submodule.
@@ -1494,8 +1496,12 @@ function _patch_system_files() {
     _install_log "Copying RaspAP debug log control script"
     sudo cp "$webroot_dir/installers/"debuglog.sh "$raspap_dir/system" || _install_status 1 "Unable to move debug logging script"
 
+    # The update runs this file. bash reads a script while it runs, so cp over
+    # the file makes bash run lines of the new file. A new file and mv keep the
+    # running file unchanged.
     _install_log "Copying RaspAP install loader"
-    sudo cp "$webroot_dir/installers/"raspbian.sh "$raspap_dir/system" || _install_status 1 "Unable to move application update script"
+    sudo install -o root -g root -m 750 "$webroot_dir/installers/raspbian.sh" "$raspap_dir/system/.raspbian.sh.new" &&
+        sudo mv -f "$raspap_dir/system/.raspbian.sh.new" "$raspap_dir/system/raspbian.sh" || _install_status 1 "Unable to move application update script"
 
     # www-data can run this script with sudo, so it must be in a directory that
     # only root can change
