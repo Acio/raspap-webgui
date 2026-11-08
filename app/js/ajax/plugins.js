@@ -1,7 +1,8 @@
 import { getCSRFToken } from "../helpers.js";
 
 function showPluginInstallError(errorMessage) {
-    var errorLog = '<textarea class="plugin-log text-secondary" readonly>' + errorMessage + '</textarea>';
+    // hardened fork: the message can hold command output, so it is text
+    var errorLog = $('<textarea class="plugin-log text-secondary" readonly></textarea>').val(String(errorMessage));
     $('#plugin-install-message')
         .contents()
         .first()

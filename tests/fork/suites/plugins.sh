@@ -109,6 +109,7 @@ c "a name that is not in the list is refused" 'echo "$out" | grep -q "not in the
 out=$(pi "../../etc")
 c "a path as name is refused" 'echo "$out" | grep -q "not in the plugin list"'
 c "PluginInstaller::installPlugin is private" '! (cd "$W" && php -r "require \"includes/config.php\"; require \"includes/autoload.php\"; \$r = new ReflectionMethod(\"RaspAP\\\\Plugins\\\\PluginInstaller\", \"installPlugin\"); exit(\$r->isPublic() ? 0 : 1);")'
+c "plugins.js shows the install error as text, not as HTML" 'grep -q "readonly></textarea>.).val(String(errorMessage))" "$W/app/js/ajax/plugins.js" && ! grep -q "+ errorMessage +" "$W/app/js/ajax/plugins.js"'
 c "do_plugin_install.php and plugins.js use only the name" 'grep -q plugin_name "$W/ajax/plugins/do_plugin_install.php" && ! grep -qE "plugin_uri|install_path|plugin_version" "$W/ajax/plugins/do_plugin_install.php" && ! grep -qE "plugin_uri|install_path" "$W/app/js/ajax/plugins.js"'
 out=$(pi DynDNS)
 c "DynDNS (downloaded from the list source): $out" '[ "$out" = true ] && [ -d "$W/plugins/DynDNS" ] && [ -f /etc/sudoers.d/090_DynDNS ]'
