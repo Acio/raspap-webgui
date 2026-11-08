@@ -70,23 +70,24 @@ class NTPServer implements PluginInterface
             if (!RASPI_MONITOR_ENABLED) {
                 if (isset($_POST['SaveNTPsettings'])) {
                     if(isset($_POST['ntpconfigedit']) && $_POST['ntpconfigedit'] == '1') {
-                        $config = trim($_POST['txtntpconfigraw']);
+                        $config = trim((string)($_POST['txtntpconfigraw'] ?? ''));
                         if (empty($config)) {
                             $status->addMessage('NTP configuration cannot be empty', 'danger');
                         } else {
                             $return = $this->saveNTPConfigRaw($status, $config);
-                            if ($return == 0) {
+                            if ($return === 0) {
                                 $status->addMessage('Restarting ntpd.service', 'info');
                                 $this->runHelper('restart');
                             }
                         }
                     } elseif (isset($_POST['server'])) {
-                        $servers = $_POST['server'];
+                        // hardened fork: a list of strings, also when the request has another type
+                        $servers = is_array($_POST['server']) ? array_map('strval', $_POST['server']) : [];
                         if (count($servers) == 0) {
                             $status->addMessage('Please enter a valid NTP server', 'danger');
                         } else {
                             $return = $this->saveNTPSettings($status, $servers);
-                            if ($return == 0) {
+                            if ($return === 0) {
                               $status->addMessage('Restarting ntpd.service', 'info');
                               $this->runHelper('restart');
                             }
@@ -175,15 +176,14 @@ class NTPServer implements PluginInterface
      *
      * @param object $status
      * @param array $servers
-     * @param string $ntpconfig
-     * @return boolean
+     * @return int 0 on success (hardened fork: before, false, which is == 0)
      */
-    protected function saveNTPSettings($status, $servers)
+    protected function saveNTPSettings($status, $servers): int
     {
-        exec('cat '.$this->ntpConfig, $ntpconfig);
+        $ntpconfig = @file($this->ntpConfig, FILE_IGNORE_NEW_LINES);
         if (empty($ntpconfig)) {
             $status->addMessage(sprintf(_('NTP configuration not found at %s'), $this->ntpConfig), 'danger');
-            return false;
+            return 1;
         }
         $ntpconfig = array_filter($ntpconfig, function ($line) {
             return strpos(trim($line), 'server ') !== 0;
@@ -200,10 +200,10 @@ class NTPServer implements PluginInterface
      * Persist raw NTP config
      *
      * @param object $status
-     * @param array $ntpconfig
-     * @return boolean
+     * @param string $ntpconfig
+     * @return int 0 on success
      */
-    protected function saveNTPConfigRaw($status, $ntpconfig)
+    protected function saveNTPConfigRaw($status, $ntpconfig): int
     {
         return $this->installConfig($status, $ntpconfig);
     }

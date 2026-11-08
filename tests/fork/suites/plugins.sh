@@ -196,6 +196,11 @@ c "plugin: servers saved through the helper" 'grep -qx "server time.example ibur
 cp /etc/ntpsec/ntp.conf /tmp/ntp.ref
 out=$(np saveNTPSettings 'x.example" onmouseover="alert(1)')
 c "plugin: a server value with quotes is refused, the message is escaped" 'cmp -s /etc/ntpsec/ntp.conf /tmp/ntp.ref && echo "$out" | grep -q "&quot;" && ! echo "$out" | grep -q "\" onmouseover"'
+mv /etc/ntpsec/ntp.conf /etc/ntpsec/ntp.conf.away
+out=$(np saveNTPSettings "time.example iburst")
+c "plugin: no ntp.conf gives 1 (not false, which == 0 and restarted ntpd)" '[ "${out%%|*}" = 1 ] && echo "$out" | grep -q "not found"'
+mv /etc/ntpsec/ntp.conf.away /etc/ntpsec/ntp.conf
+c "plugin: the callers compare the result with === 0" '[ "$(grep -c "if (\$return === 0)" "$S/plugins-available/NTPServer/NTPServer.php")" = 2 ] && ! grep -q "\$return == 0" "$S/plugins-available/NTPServer/NTPServer.php"'
 c "the bundled plugin has no /tmp files, no unserialize and no direct sudo commands" '! grep -vE "^\s*(\*|//)" "$S/plugins-available/NTPServer/NTPServer.php" | grep -qE "/tmp/|unserialize|sudo /bin|sudo /usr/bin"'
 
 echo "== installer: helpers of the plugins"
