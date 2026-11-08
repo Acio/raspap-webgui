@@ -35,7 +35,7 @@ class ExceptionHandler
             $exception->getLine() . PHP_EOL
         );
         // Log the exception
-        error_log($errorMessage, 3, RASPI_ERROR_LOG);
+        self::writeLog($errorMessage);
 
         $renderer = new HtmlErrorRenderer();
         $renderer->render($exception, $reference);
@@ -50,6 +50,21 @@ class ExceptionHandler
                 $error['message'], 0, $error['type'], $error['file'], $error['line']
             ));
         }
+    }
+
+    /**
+     * Hardened fork: writes a line to the error log. A new log file gets
+     * mode 640, so only www-data and its group can read it.
+     */
+    private static function writeLog(string $line): void
+    {
+        $log = RASPI_ERROR_LOG;
+        if (!file_exists($log)) {
+            $umask = umask(0027);
+            @touch($log);
+            umask($umask);
+        }
+        error_log($line, 3, $log);
     }
 
     protected function setExceptionHandler()

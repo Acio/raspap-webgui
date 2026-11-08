@@ -45,6 +45,7 @@ function _install_raspap() {
     _install_dependencies
     _enable_php_lighttpd
     _create_raspap_directories
+    _create_log_directory
     _check_for_old_configs
     _optimize_php
     _download_latest_files
@@ -75,6 +76,7 @@ function _update_raspap() {
     _update_system_packages
     _install_dependencies
     _check_for_old_configs
+    _create_log_directory
     _download_latest_files
     _secure_raspap_directories
     _secure_openvpn_client_files
@@ -358,6 +360,25 @@ function _create_raspap_directories() {
     echo "Changing file ownership of $raspap_dir/backups"
     sudo chown -R $raspap_user:$raspap_user "$raspap_dir/backups" || _install_status 1 "Unable to change file ownership for '$raspap_dir/backups'"
     _secure_raspap_directories
+}
+
+# The error log of the web interface: in a directory that only www-data can
+# read, not in /tmp. An update moves the old log of /tmp to it.
+function _create_log_directory() {
+    local dir=/var/log/raspap
+    _install_log "Creating the log directory $dir"
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        _install_status 1 "$dir is not a directory"
+    fi
+    sudo install -d -o $raspap_user -g $raspap_user -m 750 "$dir" || _install_status 1 "Unable to create $dir"
+    local old=/tmp/raspap_error.log
+    if [ -f "$old" ] && [ ! -L "$old" ]; then
+        if [ ! -e "$dir/error.log" ]; then
+            sudo install -o $raspap_user -g $raspap_user -m 640 "$old" "$dir/error.log" || _install_status 1 "Unable to move the error log"
+        fi
+        sudo rm -f "$old"
+    fi
+    _install_status 0
 }
 
 # www-data can run the scripts in the subdirectories of $raspap_dir with sudo.
@@ -1143,6 +1164,10 @@ function _download_latest_files() {
         if [ -n "$endpoint" ]; then
             sudo sed -i "s|^define('RASPI_API_ENDPOINT',.*|$endpoint|" "$webroot_dir/includes/config.php" || _install_status 1 "Unable to set the update endpoint in config.php"
         fi
+        # the error log moved from /tmp to /var/log/raspap; a path that the
+        # user set stays
+        sudo sed -i "s|^define('RASPI_ERROR_LOG', sys_get_temp_dir() . '/raspap_error.log');|define('RASPI_ERROR_LOG', '/var/log/raspap/error.log');|" \
+            "$webroot_dir/includes/config.php" || _install_status 1 "Unable to set the error log in config.php"
 
         if [ -f "$old_config_dir/raspap.auth" ]; then
             _install_log "Applying existing authentication file to ${raspap_dir}"

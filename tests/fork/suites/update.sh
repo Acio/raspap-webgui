@@ -94,6 +94,7 @@ c "the web root and its installers belong to root until the last step, web root 
 c "the clone is in a private directory, not /tmp/raspap-webgui" '[ -d /tmp/raspap-webgui/trap ]'
 c "config.php of the device kept, raspap.auth kept" 'grep -q "RASPI_WIREGUARD_ENABLED., true" "$W/includes/config.php" && [ -f "$raspap_dir/raspap.auth" ]'
 c "update check of the device now uses the fork" 'grep -q "^define(.RASPI_API_ENDPOINT., .https://api.github.com/repos/Acio/raspap-webgui/releases/latest.);" "$W/includes/config.php" && [ "$(grep -c RASPI_API_ENDPOINT "$W/includes/config.php")" = 1 ]'
+c "the old /tmp error log default in config.php is now /var/log/raspap/error.log" 'grep -qx "define(.RASPI_ERROR_LOG., ./var/log/raspap/error.log.);" "$W/includes/config.php"'
 c "php -l on the config.php after the update" 'php -l "$W/includes/config.php" > /dev/null'
 c "plugin directories kept" '[ -f "$W/plugins/MyPlugin/x" ] && [ -f "$W/plugins/NTPServer/manifest.json" ]'
 c "bundled plugin symlink kept" '[ "$(readlink "$W/plugins/Firewall")" = "$W/plugins-available/Firewall" ]'
@@ -104,6 +105,19 @@ rm -rf "$W"; tar -xzf "$b" -C /
 c "restore with tar -xzf <file> -C / gives the old web root" 'grep -q "OLD 1" "$W/old-marker.txt" && grep -q "RaspAP/raspap-webgui/releases" "$W/includes/config.php"'
 for i in 2 3 4 5; do sleep 1; old $i; run; done
 c "only the 3 newest backups stay" '[ "$(ls /var/backups/raspap-webroot-*.tar.gz | wc -l)" = 3 ] && tar -xzf "$(ls -1t /var/backups/raspap-webroot-*.tar.gz | head -1)" -O var/www/html/old-marker.txt | grep -q "OLD 5"'
+echo "== the error log directory"
+eval "$(sed -n '/^function _create_log_directory()/,/^}/p' "$S/installers/common.sh")"
+rm -rf /var/log/raspap; printf 'old line\n' > /tmp/raspap_error.log; chmod 644 /tmp/raspap_error.log
+( sudo() { "$@"; }; _create_log_directory ) > /dev/null 2>&1; rc=$?
+c "the directory is www-data 750, the old /tmp log moved in with mode 640 (rc $rc)" '[ $rc = 0 ] && [ "$(stat -c %U:%a /var/log/raspap)" = www-data:750 ] && [ "$(cat /var/log/raspap/error.log)" = "old line" ] && [ "$(stat -c %U:%a /var/log/raspap/error.log)" = www-data:640 ] && [ ! -e /tmp/raspap_error.log ]'
+printf 'newer\n' > /tmp/raspap_error.log
+( sudo() { "$@"; }; _create_log_directory ) > /dev/null 2>&1
+c "a second run keeps the log, and removes the /tmp log" '[ "$(cat /var/log/raspap/error.log)" = "old line" ] && [ ! -e /tmp/raspap_error.log ]'
+rm -rf /var/log/raspap; ln -s /etc /var/log/raspap
+( sudo() { "$@"; }; _create_log_directory ) > /dev/null 2>&1; rc=$?
+c "a symlink as the log directory is refused (rc $rc)" '[ $rc != 0 ] && [ "$(stat -c %U /etc)" = root ]'
+rm -f /var/log/raspap
+
 echo "== the update replaces the running raspbian.sh with a new file"
 mkdir -p /etc/raspap/system /tmp/wr/installers
 # the old loader sleeps, then bash reads its next line from the same offset

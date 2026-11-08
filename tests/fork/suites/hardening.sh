@@ -59,7 +59,8 @@ c "no unserialize() in the bundled Firewall plugin" '! grep -q unserialize "$S/p
 
 echo "== web front end"
 SD=/tmp/fork-sess; mkdir -p $SD; chown www-data $SD; chmod 700 $SD
-rm -f /tmp/raspap_error.log
+# the log directory, as the installer makes it
+L=/var/log/raspap; rm -rf $L; install -d -o www-data -g www-data -m 750 $L
 # a test page: "early" and "fatal" fail before the login check, "late" after it
 cat > "$W/fork_page.php" <<'EOF'
 <?php
@@ -104,7 +105,8 @@ c "session.js shows the expired window on 401" 'grep -q "jqXHR.status === 401" "
 get none fork_page.php?early=1
 ref=$(sed -n 's|.*<code>\([0-9a-f]\{8\}\)</code>.*|\1|p' /tmp/b.txt)
 c "no login: a generic error page, no details, no X-Debug headers" 'grep -q "^HTTP/1.1 500" /tmp/h.txt && [ -n "$ref" ] && ! grep -q secret /tmp/b.txt && ! grep -qi "fork_page\|Stack trace" /tmp/b.txt && ! hdr X-Debug'
-c "the error log has the reference and the message" 'grep -q "\[$ref\] secret <b>early</b> in .*fork_page.php" /tmp/raspap_error.log'
+c "the error log has the reference and the message" 'grep -q "\[$ref\] secret <b>early</b> in .*fork_page.php" $L/error.log'
+c "the error log is in /var/log/raspap, mode 640, not in /tmp" '[ "$(stat -c %U:%a $L/error.log)" = www-data:640 ] && [ ! -e /tmp/raspap_error.log ]'
 sess lim1 10 limited; get lim1 fork_page.php?late=1
 c "a limited user: a generic error page" 'grep -q "^HTTP/1.1 500" /tmp/h.txt && ! grep -q secret /tmp/b.txt && ! hdr X-Debug'
 sess old1 10; get old1 fork_page.php?late=1
@@ -112,7 +114,7 @@ c "a session without a role: a generic error page" '! grep -q secret /tmp/b.txt'
 sess adm1 10 admin; get adm1 fork_page.php?late=1
 c "the admin user: details, escaped, no X-Debug headers" 'grep -q "secret &lt;b&gt;late&lt;/b&gt;" /tmp/b.txt && ! grep -q "<b>late" /tmp/b.txt && grep -q "Stack trace" /tmp/b.txt && grep -q "fork_page.php:9" /tmp/b.txt && ! hdr X-Debug'
 get none fork_page.php?fatal=1
-c "a fatal error: the generic error page and a log line" 'grep -q "<code>[0-9a-f]\{8\}</code>" /tmp/b.txt && ! grep -q "Allowed memory" /tmp/b.txt && grep -q "Allowed memory size" /tmp/raspap_error.log'
+c "a fatal error: the generic error page and a log line" 'grep -q "<code>[0-9a-f]\{8\}</code>" /tmp/b.txt && ! grep -q "Allowed memory" /tmp/b.txt && grep -q "Allowed memory size" $L/error.log'
 kill $PHPS 2>/dev/null
 
 out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "includes/config.php"; require "includes/autoload.php"; session_start();

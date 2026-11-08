@@ -11,7 +11,7 @@ define('RASPI_CONFIG_API', RASPI_CONFIG.'/api');
 define('RASPI_ADMIN_DETAILS', RASPI_CONFIG.'/raspap.auth');
 define('RASPI_WIFI_AP_INTERFACE', 'wlan0');
 define('RASPI_CACHE_PATH', sys_get_temp_dir() . '/raspap');
-define('RASPI_ERROR_LOG', sys_get_temp_dir() . '/raspap_error.log');
+define('RASPI_ERROR_LOG', '/var/log/raspap/error.log');
 define('RASPI_DEBUG_LOG', 'raspap_debug.log');
 define('RASPI_LOG_SIZE_LIMIT', 64);
 define('RASPI_SESSION_TIMEOUT', 1440);
