@@ -5,26 +5,26 @@
       "dest_file": "hostnames.txt"
     }
   },
-  "HaGeZi/hosts": {
-    "hagezi/hosts (Light)": {
-      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/light.txt",
-      "dest_file": "hostnames.txt"
+  "HaGeZi/domains": {
+    "hagezi/domains (Light)": {
+      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/light.txt",
+      "dest_file": "domains.txt"
     },
-    "hagezi/hosts (Normal)": {
-      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/multi.txt",
-      "dest_file": "hostnames.txt"
+    "hagezi/domains (Normal)": {
+      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/multi.txt",
+      "dest_file": "domains.txt"
     },
-    "hagezi/hosts (Pro)": {
-      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt",
-      "dest_file": "hostnames.txt"
+    "hagezi/domains (Pro)": {
+      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/pro.txt",
+      "dest_file": "domains.txt"
     },
-    "hagezi/hosts (Pro++)": {
-      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.plus.txt",
-      "dest_file": "hostnames.txt"
+    "hagezi/domains (Pro++)": {
+      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/pro.plus.txt",
+      "dest_file": "domains.txt"
     },
-    "hagezi/hosts (Ultimate)": {
-      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/ultimate.txt",
-      "dest_file": "hostnames.txt"
+    "hagezi/domains (Ultimate)": {
+      "list_url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/ultimate.txt",
+      "dest_file": "domains.txt"
     }
   },
   "OISD/domains": {

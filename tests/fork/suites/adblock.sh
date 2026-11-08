@@ -20,6 +20,7 @@ cat > $A/blocklists.json <<'EOF'
     "evil": { "list_url": "https://lists.example.org/evil.txt", "dest_file": "domains.txt" },
     "missing": { "list_url": "https://lists.example.org/missing.txt", "dest_file": "domains.txt" },
     "empty": { "list_url": "https://lists.example.org/empty.txt", "dest_file": "domains.txt" },
+    "local": { "list_url": "https://lists.example.org/dnsmasq/light.txt", "dest_file": "domains.txt" },
     "plain http": { "list_url": "http://lists.example.org/domains.txt", "dest_file": "domains.txt" },
     "bad file": { "list_url": "https://lists.example.org/domains.txt", "dest_file": "../../etc/x.txt" }
   }
@@ -36,6 +37,7 @@ case "$url" in
     */domains.txt) printf '# oisd\nserver=/ads.example/\nserver=/tracker.example/\n' > "$out" ;;
     */evil.txt) printf 'server=/ads.example/\ndhcp-script=/tmp/x.sh\nconf-file=/tmp/y\n server=/z/\nserver=/bank.example/203.0.113.9\naddress=/b.example/0.0.0.0\n' > "$out" ;;
     */empty.txt) printf '# nothing\n' > "$out" ;;
+    */dnsmasq/light.txt) printf '# HaGeZi format\nlocal=/adminpanel.example/\nlocal=/telemetry.example.com/\n' > "$out" ;;
     *) exit 8 ;;
 esac
 EOF
@@ -72,6 +74,11 @@ c "update_blocklist.php sends only the list name" 'grep -q "escapeshellarg(\$blo
 echo "== the installer"
 c "the installer installs the script and a root-owned blocklists.json" 'grep -q "install -o root -g root -m 644 \"\$webroot_dir/config/blocklists.json\" \"\$raspap_dir/adblock/blocklists.json\"" "$S/installers/common.sh"'
 c "no list downloads to fixed /tmp names" '! grep -qE "/tmp/(hostnames|domains)\.txt" "$S/installers/common.sh"'
+reset; PATH="/opt/stub:$PATH" $A/update_blocklist.sh local > /dev/null 2>&1
+c "local=/.../ lines (the HaGeZi dnsmasq format) are kept" '[ "$(cat $A/domains.txt)" = "local=/adminpanel.example/
+local=/telemetry.example.com/" ]'
+c "each list of blocklists.json: an https URL that the script accepts, and a known list file" 'jq -r ".[] | .[] | \"\(.list_url) \(.dest_file)\"" "$S/config/blocklists.json" | while read -r u f; do [[ "$u" =~ ^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%+-]*)?$ ]] && { [ "$f" = hostnames.txt ] || [ "$f" = domains.txt ]; } || exit 1; done'
+c "the HaGeZi lists use the dnsmasq files (the hosts files give 404)" '[ "$(jq -r "[.\"HaGeZi/domains\"[] | select((.list_url | test(\"/dnsmasq/\")) and .dest_file == \"domains.txt\")] | length" "$S/config/blocklists.json")" = 5 ] && ! grep -q "dns-blocklists/main/hosts/" "$S/config/blocklists.json"'
 c "the default lists of the installer are in blocklists.json" 'for n in "StevenBlack/hosts (default)" "oisd/big (default)"; do jq -e --arg n "$n" "[.[] | has(\$n)] | any" "$S/config/blocklists.json" > /dev/null || exit 1; done'
 
 echo "== dnsmasq options (raspap-config-file.sh)"
