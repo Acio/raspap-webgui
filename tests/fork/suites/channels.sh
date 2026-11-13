@@ -72,6 +72,7 @@ c "radar, disabled and no-IR frequencies are not used" '[ "$(j ".\"5180\"")" = 2
 echo "== the endpoint"
 setup_webroot
 mkdir -p /etc/raspap; printf '[WifiInterface]\nWifiInterface = wlan1\n' > /etc/raspap/hostapd.ini
+set_admin_password
 # iw is replaced by a stub that prints the fixtures (overlap case)
 dev "channel 36 (5180 MHz), width: 80 MHz, center1: 5210 MHz" "channel 48 (5240 MHz), width: 80 MHz, center1: 5210 MHz"
 cp /tmp/dev.txt /opt/iw-dev.txt; cp "$FX/iw-phy-rtl8912au.txt" /opt/iw-phy.txt

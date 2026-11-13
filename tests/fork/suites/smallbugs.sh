@@ -86,7 +86,7 @@ mkdir -p /etc/raspap/networking
 printf '{"dnsmasq":{"wlan0":{"dhcp-range":["10.3.141.50,10.3.141.254,255.255.255.0,12h"]}}}' > /etc/raspap/networking/defaults.json
 out=$(cd "$W" && php -d error_reporting=E_ALL -d display_errors=stderr -r 'require "includes/config.php"; require "includes/defaults.php"; require "includes/functions.php";
     var_export(getDefaultNetValue("dnsmasq", "lo", "dhcp-range")); echo " "; echo getDefaultNetValue("dnsmasq", "wlan0", "dhcp-range");' 2>&1)
-c "getDefaultNetValue: false for an interface without defaults, no warning" '[ "$out" = "false 10.3.141.50,10.3.141.254,255.255.255.0,12h" ]'
+c "getDefaultNetValue: null for an interface without defaults (upstream 3.5.10), no warning" '[ "$out" = "NULL 10.3.141.50,10.3.141.254,255.255.255.0,12h" ]'
 c "restapi.php sets \$docMsg also when the RestAPI does not run" 'grep -q "^    \$docMsg = .\{2\};" "$S/includes/restapi.php"'
 c "index.php flushes the output buffer only when one is active" 'grep -q "if (ob_get_level() > 0) { ob_end_flush(); }" "$S/index.php"'
 

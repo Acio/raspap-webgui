@@ -75,6 +75,7 @@ if (isset($_GET['late'])) { throw new RuntimeException('secret <b>late</b>'); }
 echo 'page ok';
 EOF
 chown www-data "$W/fork_page.php"
+set_admin_password
 sudo -u www-data php -d session.save_path=$SD -d display_errors=0 -S 127.0.0.1:8099 -t "$W" > /tmp/phps.log 2>&1 &
 PHPS=$!
 for i in $(seq 50); do curl -s -o /dev/null http://127.0.0.1:8099/fork_page.php && break; sleep 0.1; done
@@ -112,6 +113,13 @@ old age3 3600 10; get age3 fork_page.php
 c "a login of 1 hour stays" 'grep -qx "page ok" /tmp/b.txt'
 sess nolt 10 admin; get nolt fork_page.php
 c "a session without a login time stays, and gets one" 'grep -qx "page ok" /tmp/b.txt && grep -q "loginTime|i:" $SD/sess_nolt'
+# upstream 3.5.10: with the default password, an admin must change it first
+mv /etc/raspap/raspap.auth /tmp/raspap.auth.keep
+sess dflt 10 admin; get dflt fork_page.php
+c "default password: a page is refused (403) until the change" 'grep -q "^HTTP/1.1 403" /tmp/h.txt && grep -q "Password change required" /tmp/b.txt && ! grep -q "page ok" /tmp/b.txt'
+get dflt ajax/session/do_check_session.php
+c "default password: the session check still answers, the session stays" 'grep -q "\"status\":\"active\"" /tmp/b.txt && grep -q "user_id" $SD/sess_dflt'
+mv /tmp/raspap.auth.keep /etc/raspap/raspap.auth
 c "session.js shows the expired window on 401" 'grep -q "jqXHR.status === 401" "$S/app/js/ajax/session.js"'
 
 get none fork_page.php?early=1
@@ -132,11 +140,11 @@ kill $PHPS 2>/dev/null
 out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "includes/config.php"; require "includes/autoload.php"; session_start();
     $_SESSION["lastActivity"] = 1; $a = new \RaspAP\Auth\HTTPAuth;
     $r = ($a->login("admin", "wrong", "admin") ? "x" : "-") . ($a->isAdmin() ? "x" : "-");
-    $r .= ($a->login("admin", "secret", "admin") ? "L" : "-") . ($a->isAdmin() ? "A" : "-") . ($a->isIdle() ? "I" : "-");
+    $r .= ($a->login("admin", "fork-test-password", "admin") ? "L" : "-") . ($a->isAdmin() ? "A" : "-") . ($a->isIdle() ? "I" : "-");
     echo $r;' 2>&1)
 c "login() saves the admin role and resets the idle time" '[ "$out" = "--LA-" ]'
 out=$(cd "$W" && sudo -u www-data php -d session.save_path=$SD -r 'require "includes/config.php"; require "includes/autoload.php"; session_start();
-    $a = new \RaspAP\Auth\HTTPAuth; $a->login("admin", "secret", "admin"); echo (time() - $_SESSION["loginTime"] < 5 ? "T" : "-"), ($a->isTooOld() ? "O" : "-");' 2>&1)
+    $a = new \RaspAP\Auth\HTTPAuth; $a->login("admin", "fork-test-password", "admin"); echo (time() - $_SESSION["loginTime"] < 5 ? "T" : "-"), ($a->isTooOld() ? "O" : "-");' 2>&1)
 c "login() saves the login time" '[ "$out" = "T-" ]'
 
 

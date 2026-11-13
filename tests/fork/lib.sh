@@ -33,6 +33,15 @@ setup_webroot() {
     chmod -R go-w "$W"
 }
 
+# Sets an admin password that is not the default. With the default password,
+# RaspAP 3.5.10 sends a logged-in admin to the password change page.
+set_admin_password() {
+    mkdir -p /etc/raspap
+    php -r 'echo "admin\n", password_hash("fork-test-password", PASSWORD_BCRYPT), "\n";' > /etc/raspap/raspap.auth
+    chown www-data /etc/raspap/raspap.auth
+    chmod 600 /etc/raspap/raspap.auth
+}
+
 # Installs the sudoers file of RaspAP
 setup_sudoers() {
     cp "$S/installers/raspap.sudoers" /etc/sudoers.d/090_raspap

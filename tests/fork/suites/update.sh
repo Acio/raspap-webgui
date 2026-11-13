@@ -178,6 +178,8 @@ c "version compare with 4 numbers, RASPI_VERSION has 4 numbers" '[ "$out" = PASS
 c "config/config.php: update endpoint of the fork" 'grep -q "repos/Acio/raspap-webgui/releases/latest" "$S/config/config.php"'
 # in a web root as the installer makes it (with includes/config.php)
 rm -rf "$W"; setup_webroot
+# the upstream test makes a session without a password change (RaspAP 3.5.10)
+set_admin_password
 out=$(cd "$W" && php tests/update/run_tests.php 2>&1); rc=$?
 c "tests/update/run_tests.php in the web root (rc $rc)" '[ $rc = 0 ] || { echo "$out" | tail -5; false; }'
 
