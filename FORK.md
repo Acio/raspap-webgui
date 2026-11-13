@@ -26,7 +26,7 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 | WiFi client | `raspap-wifi.sh` runs wpa_cli, wpa_supplicant and iw with checked arguments. | `321b4a59` | smallbugs (sudo rules) |
 | Network tools and logs | `raspap-net.sh` and `raspap-logs.sh` run ip, iw, nmap and wvdial, and read and clear the logs. `clearlog.php` clears only the 3 logs. | `a611aef5` | smallbugs |
 | sudo rules | Rules without a caller are removed, reboot only without arguments, no rule to move or touch `.env`. | `a7415111`, `a611aef5`, `0d51f2db` | static, smallbugs, hardening |
-| RestAPI | The service runs as the system user `raspap-api`, from the root-owned venv `/etc/raspap/api/venv`, with systemd hardening. An update moves an older install. A root helper writes the key. | `25550589`, `da85ccd4`, `0d51f2db` | restapi, hardening |
+| RestAPI | The service runs as the system user `raspap-api`, from the root-owned venv `/etc/raspap/api/venv`, with systemd hardening. An update moves an older install. A root helper writes the key. RaspAP 3.5.10 has the user and the venv (#2237), but the fork keeps its own installer functions. | `25550589`, `da85ccd4`, `0d51f2db`, `eeb57acf` | restapi, hardening |
 | Updates | The update installs only the latest release of this fork, and saves the web root first. It keeps the plugins and their JavaScript, and writes `defaults.json` also with `fs.protected_regular=2`. An explicit `--branch` needs no release. The release tag is read also from minified JSON. The installer parts and the clone are in private temporary files, and the web root belongs to root until the last step. The web root keeps mode 755. The update installs `raspbian.sh` as a new file, so the running loader does not change. | `e0843270`, `87aa3791`, `5651c90a`, `32c0834e`, `b173d3d5`, `cfb85a95`, `f8dfc279`, `09cbe8fb` | update |
 | Firewall plugin | The bundled Firewall plugin applies its rules with `raspap-firewall.sh` in own chains. An update replaces billz/Firewall through the plugin helper. | `1a84ccbe`, `613ae46f`, `0d51f2db`, `8b766976` | firewall, plugins, hardening |
 | Plugin installs | The browser sends only the plugin name. The source comes from `config/plugins.json`. | `12fe5392`, `5f22dd0f`, `0b5587a7` | plugins |
@@ -43,13 +43,15 @@ After each upstream merge, run `tests/fork/run.sh`. A failed test shows a lost c
 | Hotspot reset | The reset of the System page resets the hotspot interface of `hostapd.ini`, not wlan0, with its defaults from `defaults.json`. The country code and the other interfaces stay. The reset saves the old files in `/etc/raspap/backups/reset-*`, and a failed step puts them back. | `2bc7909f`, `3d4e18d8` | hardening |
 | Error log | The error log is `/var/log/raspap/error.log` with mode 640, not `/tmp/raspap_error.log`. The update moves the old log and changes the default path in `config.php`. | `4f33d24b` | hardening, update |
 | Channel warning | The dashboard and the hotspot, client and network pages show a warning. It shows when the hotspot channel overlaps the channel of the wireless uplink, or is less than 40 MHz from it. The warning suggests a far channel (`ChannelOverlap`). The pages check again every minute, because the uplink channel changes when the device connects to another network. | `355a2092` | channels |
-| PHP warnings | `getDefaultNetValue()` returns false for an interface without defaults. The RestAPI page and `index.php` give no warning. | `aff91e34` | smallbugs |
+| PHP warnings | `getDefaultNetValue()` returns null for an interface without defaults (also in RaspAP 3.5.10, #2252). The RestAPI page and `index.php` give no warning. | `aff91e34`, `eeb57acf` | smallbugs |
 | Web libraries | jQuery 3.7.1, DataTables 1.13.11 and Chart.js 2.9.4 in `dist/`. `package.json` lists the libraries in `dist/`, without a build. | `cc338d4c`, `cf3a041c` | static |
 | Tests and CI | `tests/fork`, Fork CI, the release check and Dependabot. | `15c79397`, `e46e0754` | all |
 | README | The fork notice and how to install the fork. | `7e66a338`, `72dd5875` | none |
 | Version | `RASPI_VERSION` has 4 numbers: the upstream version and the fork release, for example `3.5.9.3`. | `e0843270` | update |
 
-RaspAP itself has these changes now: the RestAPI key (#2233), the private OpenVPN and login files (#2235), and the small bug fixes (#2243).
+RaspAP itself has these changes now: the RestAPI key (#2233), the private OpenVPN and login files (#2235), the small bug fixes (#2243), the RestAPI user and venv (#2237), the release tag from minified JSON (#2256), and the `defaults.json` write with `fs.protected_regular=2` (#2258).
+
+Since RaspAP 3.5.10, an admin with the default password must change it after 3 logins. Until then, a page goes to the password change, and other requests get 403. The fork tests that make a session without a login call `set_admin_password` (`tests/fork/lib.sh`) first. The hardening suite checks the 403 (`385863ca`).
 
 ## Changes without a test
 
