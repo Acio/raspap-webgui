@@ -20,5 +20,7 @@ if (RASPI_AUTH_ENABLED) {
 
     if (!$auth->isLogged()) {
         $auth->authenticate();
+    } else {
+        $auth->enforcePasswordChange();
     }
 }

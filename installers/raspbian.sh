@@ -238,7 +238,7 @@ function _get_release() {
         _install_status 1 "GitHub API rate limit exceeded. Try again later."
         return 1
     fi
-    # the API may return pretty-printed or minified JSON (as RaspAP PR #2256)
+    # the API may return pretty-printed or minified JSON
     readonly RASPAP_LATEST=$(echo "$response" | grep -Po '"tag_name":\s*"\K[^"]+' | head -n 1)
 
     if [ -z "$RASPAP_LATEST" ]; then
